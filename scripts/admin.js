@@ -1,0 +1,3 @@
+import {connect,one} from '../src/db.js';import {passwordHash} from '../src/security.js';
+const email=process.env.ADMIN_EMAIL,password=process.env.ADMIN_PASSWORD,role=process.env.ADMIN_ROLE||'owner';if(!email||!password||!['owner','manager','viewer'].includes(role))throw Error('Defina ADMIN_EMAIL, ADMIN_PASSWORD (mínimo 14 caracteres) e ADMIN_ROLE');
+const db=await connect();try{await db.transaction(async c=>{const u=await one(c,'INSERT INTO users(email,password_hash) VALUES($1,$2) RETURNING id',[email.toLowerCase(),passwordHash(password)]);await c.query('INSERT INTO admin_roles(user_id,role) VALUES($1,$2)',[u.id,role]);});console.log('Administrador criado');}finally{await db.close();}
