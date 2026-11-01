@@ -1,3 +1,5 @@
+import nodemailer from 'nodemailer';
+import {createHash} from 'node:crypto';
 import { HttpError } from './security.js';
 async function request(url,options={}){const r=await fetch(url,{...options,signal:AbortSignal.timeout(15000)});if(!r.ok){const e=new Error('Integração indisponível: HTTP '+r.status);e.providerStatus=r.status;throw e;}return r.status===204?{}:r.json();}
 export class MercadoPago{
@@ -24,6 +26,22 @@ export class GoogleCalendar{
 }
 export class Email{
  constructor(env=process.env){this.env=env;}
- ready(){return !!(this.env.EMAIL_API_KEY&&this.env.EMAIL_FROM);}
- async send(b,kind,key){if(!this.ready())throw Error('E-mail transacional não configurado');const when=new Date(b.starts_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});return request('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+this.env.EMAIL_API_KEY,'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify({from:this.env.EMAIL_FROM,to:[b.email],subject:kind==='reminder'?'Lembrete · JR Bronzeamento':'Agendamento confirmado · JR Bronzeamento',text:'Olá, '+b.customer_name+'. Seu atendimento '+b.service_name+' está confirmado para '+when+' (horário de São Paulo). Identificação: '+b.id+'. Orientações: '+(b.care||'Consulte a equipe para receber as orientações do serviço.')+' Consulte sua reserva (link privado): '+this.env.APP_URL+'/reserva#token='+b.receipt_token})});}
+ ready(){return !!((this.env.SMTP_HOST&&this.env.SMTP_USER&&this.env.SMTP_PASSWORD)||(this.env.EMAIL_API_KEY&&this.env.EMAIL_FROM));}
+ customerReady(){return this.ready()&&this.env.CUSTOMER_EMAIL_ENABLED==='true';}
+ async verify(){const e=this.env;if(!(e.SMTP_HOST&&e.SMTP_USER&&e.SMTP_PASSWORD))return false;const transport=nodemailer.createTransport({host:e.SMTP_HOST,port:Number(e.SMTP_PORT||465),secure:String(e.SMTP_PORT||465)==='465',requireTLS:String(e.SMTP_PORT||465)!=='465',auth:{user:e.SMTP_USER,pass:e.SMTP_PASSWORD},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:15000});try{await transport.verify();return true;}catch{throw new HttpError(503,'Não foi possível validar o remetente SMTP. Confira a senha e as configurações privadas.');}}
+ async deliver(to,subject,text,key){if(!this.ready())throw Error('E-mail transacional não configurado');const e=this.env;const from=e.EMAIL_FROM||e.SMTP_USER;
+ if(e.SMTP_HOST&&e.SMTP_USER&&e.SMTP_PASSWORD){const transport=nodemailer.createTransport({host:e.SMTP_HOST,port:Number(e.SMTP_PORT||465),secure:String(e.SMTP_PORT||465)==='465',requireTLS:String(e.SMTP_PORT||465)!=='465',auth:{user:e.SMTP_USER,pass:e.SMTP_PASSWORD},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:15000});const domain=String(e.SMTP_USER).split('@')[1];const result=await transport.sendMail({from,to,subject,text,messageId:'<'+createHash('sha256').update(key).digest('hex')+'@'+domain+'>'});if(!result.accepted?.length)throw Error('O servidor de e-mail não aceitou o destinatário');return {id:result.messageId};}
+ return request('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+e.EMAIL_API_KEY,'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify({from,to:[to],subject,text})});}
+ async send(b,kind,key){const when=new Date(b.starts_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});return this.deliver(b.email,kind==='reminder'?'Lembrete · JR Bronzeamento':'Agendamento confirmado · JR Bronzeamento','Olá, '+b.customer_name+'. Seu atendimento '+b.service_name+' está confirmado para '+when+' (horário de São Paulo). Identificação: '+b.id+'. Orientações: '+(b.care||'Consulte a equipe para receber as orientações do serviço.')+' Consulte sua reserva (link privado): '+this.env.APP_URL+'/reserva#token='+b.receipt_token,key);}
+}
+export function ownerSummary(b,sessions,origin){return ['JR Bronzeamento · Agendamento confirmado','Cliente: '+b.customer_name,'WhatsApp: '+b.phone,'E-mail: '+b.email,'Serviço: '+b.service_name,(sessions.length>1?'Pacote com '+sessions.length+' sessões':'Sessão avulsa'),'Valor do serviço: '+(Number(b.amount_cents)/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}),'Datas e horários (São Paulo):',...sessions.map((s,i)=>'Sessão '+(i+1)+': '+new Date(s.starts_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})),'Reserva: '+b.id,'Deslocamento Uber: combinado à parte.','Acompanhar no painel: '+origin+'/admin'].join('\n');}
+export class OwnerAlerts{
+ constructor(env=process.env,email=new Email(env)){this.env=env;this.email=email;}
+ whatsappReady(){const e=this.env;return !!(e.WHATSAPP_API_URL&&e.WHATSAPP_API_KEY&&e.WHATSAPP_INSTANCE);}
+ async connection(){if(!this.whatsappReady())return {configured:false,state:'not_configured'};const e=this.env;const data=await request(e.WHATSAPP_API_URL.replace(/\/$/,'')+'/instance/connectionState/'+encodeURIComponent(e.WHATSAPP_INSTANCE),{headers:{apikey:e.WHATSAPP_API_KEY}});return {configured:true,state:data.instance?.state||data.state||'unknown'};}
+ async sendTest(kind,recipient,key){const text='JR Bronzeamento · Teste de ativação dos avisos. Nenhuma reserva ou cobrança foi criada. As próximas confirmações trarão os dados da cliente e os horários do atendimento.';if(kind==='owner_email')return this.email.deliver(recipient,'Teste dos avisos · JR Bronzeamento',text,key);return this.whatsapp(recipient,text);}
+ async whatsapp(recipient,text){if(!this.whatsappReady())throw Error('WhatsApp de avisos ainda não configurado');const e=this.env;const result=await request(e.WHATSAPP_API_URL.replace(/\/$/,'')+'/message/sendText/'+encodeURIComponent(e.WHATSAPP_INSTANCE),{method:'POST',headers:{apikey:e.WHATSAPP_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({number:recipient,text,linkPreview:false})});return {id:result.key?.id||result.id||null};}
+ async send(kind,recipient,b,sessions,key){const text=ownerSummary(b,sessions,this.env.APP_URL);if(kind==='owner_email')return this.email.deliver(recipient,'Nova reserva confirmada · JR Bronzeamento',text,key);
+ return this.whatsapp(recipient,text);}
+
 }

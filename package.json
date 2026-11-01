@@ -11,9 +11,11 @@
     "worker": "node --env-file-if-exists=.env src/worker.js",
     "migrate": "node --env-file-if-exists=.env scripts/migrate.js",
     "admin:create": "node --env-file-if-exists=.env scripts/admin.js",
-    "test": "node --test --test-concurrency=1 test/*.test.js"
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "demo": "node demo/server.js"
   },
   "dependencies": {
+    "nodemailer": "^10.3.1",
     "pg": "^8.16.3"
   },
   "devDependencies": {
