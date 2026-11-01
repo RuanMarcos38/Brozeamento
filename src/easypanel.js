@@ -5,6 +5,7 @@ if(!env.DATABASE_URL||!env.APP_URL)throw Error('Configure DATABASE_URL e APP_URL
 const origin=new URL(env.APP_URL);if(origin.protocol!=='https:'||origin.origin!==env.APP_URL)throw Error('APP_URL deve ser a origem HTTPS exata, sem barra final');
 if(env.RUN_MIGRATIONS==='true')await import('../scripts/migrate.js');
 const db=await connect();await db.query('SELECT 1');
+if(env.BOOTSTRAP_COMMERCIAL==='true'&&(await db.query('SELECT count(*)::integer total FROM services')).rows[0].total===0)await import('../scripts/configure-commercial.js');
 const {server,service}=app(db);let stopping=false;let active=null;
 const tick=()=>{if(stopping||active)return;active=(async()=>{try{await service.jobs();await db.query('DELETE FROM rate_limits WHERE resets_at<now()');await db.query('DELETE FROM sessions WHERE expires_at<now()');}catch(e){console.error(JSON.stringify({event:'worker_error',message:e.message}));}finally{active=null;}})();};
 await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(Number(env.PORT||3000),'0.0.0.0',resolve);});
