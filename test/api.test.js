@@ -1,3 +1,4 @@
+import {createHmac} from 'node:crypto';
 import {test} from 'node:test';import assert from 'node:assert/strict';import {fixture} from './helpers.js';import {app} from '../src/app.js';import {passwordHash} from '../src/security.js';
 test('API protege áreas privadas, CSRF e status da reserva; páginas preservam imagens',async()=>{const f=await fixture();const env={APP_URL:'http://localhost:3000',CALENDAR_REQUIRED:'false',PAYMENT_MODE:'test'};const {server}=app(f.db,{env,gateway:f.gateway,calendar:f.calendar,email:f.email});await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;try{
 let r=await fetch(base+'/api/admin/clientes');assert.equal(r.status,401);r=await fetch(base+'/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://evil.invalid'},body:'{}'});assert.equal(r.status,403);
@@ -10,4 +11,5 @@ r=await fetch(base+'/');const page=await r.text();assert.equal(r.status,200);ass
 r=await fetch(base+'/admin');assert.ok(r.headers.get('x-robots-tag').includes('noindex'));
 r=await fetch(base+'/reserva?status=approved');assert.ok(!(await r.text()).includes('Pagamento aprovado'));
 r=await fetch(base+'/api/webhooks/mercadopago?data.id=123',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(r.status,401);
+env.MP_WEBHOOK_SECRET='webhook-secret-only-for-tests';f.gateway.payment=async()=>{const e=new Error('not found');e.providerStatus=404;throw e;};const ts=String(Date.now()),requestId='jr-test-request';const signature=createHmac('sha256',env.MP_WEBHOOK_SECRET).update('id:123;request-id:'+requestId+';ts:'+ts+';').digest('hex');r=await fetch(base+'/api/webhooks/mercadopago?data.id=123',{method:'POST',headers:{'Content-Type':'application/json','x-request-id':requestId,'x-signature':'ts='+ts+',v1='+signature},body:JSON.stringify({type:'payment',data:{id:'123'}})});assert.equal(r.status,200);assert.equal((await r.json()).ignored,true);assert.equal((await f.db.query('SELECT * FROM payments')).rows.length,0);
 }finally{server.closeAllConnections();await new Promise(r=>server.close(r));await f.close();}});
