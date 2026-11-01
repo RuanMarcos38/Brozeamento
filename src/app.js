@@ -23,7 +23,7 @@ export function app(db,{env=process.env,gateway=new MercadoPago(env),calendar=ne
  if(req.method==='POST'&&!route.startsWith('/api/webhooks/')){requireValue(req.headers.origin===env.APP_URL,'Origem não permitida',403);requireValue(String(req.headers['content-type']).startsWith('application/json'),'Envie dados JSON',415);}
  if(route.startsWith('/api/')&&!route.startsWith('/api/webhooks/'))await limit(req,'api',120);
  if(route==='/api/health'){return send(200,{status:'ok'});}
- if(route==='/api/services'&&req.method==='GET'){return send(200,{services:await service.services(),packages:await all(db,'SELECT p.* FROM packages p JOIN services s ON s.id=p.service_id WHERE p.active AND s.active'),settings:await service.settings(),checkout_enabled:gateway.ready()&&(service.internalCalendar()||calendar.ready()||env.CALENDAR_REQUIRED==='false')});}
+ if(route==='/api/services'&&req.method==='GET'){return send(200,{services:await service.services(),packages:await all(db,'SELECT p.* FROM packages p JOIN services s ON s.id=p.service_id WHERE p.active AND s.active'),settings:await service.settings(),email_enabled:email.ready(),checkout_enabled:gateway.ready()&&(service.internalCalendar()||calendar.ready()||env.CALENDAR_REQUIRED==='false')});}
  if(route==='/api/availability'&&req.method==='GET')return send(200,{slots:await service.available(url.searchParams.get('service'),url.searchParams.get('date'))});
  if(route==='/api/bookings'&&req.method==='POST'){await limit(req,'booking',10);return send(201,await service.create(await body(req)));}
  if(route==='/api/booking'&&req.method==='GET'){const bearer=(req.headers.authorization||'').replace(/^Bearer /,'');return send(200,await service.lookup(bearer));}
