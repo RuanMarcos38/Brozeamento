@@ -75,3 +75,13 @@ Testes simulados não validam conta comercial, autorização Google, Pix real de
 - [Google Calendar: freebusy](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query)
 - [Google Calendar: events.insert](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)
 
+
+## Testar sem credenciais externas
+
+Execute `npm ci --ignore-scripts` e `npm run demo`, depois abra http://127.0.0.1:3180/teste/inicio. O ambiente usa PGlite persistente em `dados-teste/`, um usuário de demonstração com senha aleatória e um simulador local de pagamentos. As instruções e o acesso ao painel aparecem na página inicial de teste. Apenas conexões de loopback são aceitas. Nenhuma cobrança, mensagem ou sincronização externa é realizada. O servidor normal em `npm start` não usa esses simuladores. Não publicar o modo demo.
+
+O pacote portátil para Windows inclui runtime e dependências; extraia tudo e execute `INICIAR_TESTE.cmd`. Ele abre a página de instruções automaticamente. Não compartilhe a pasta `dados-teste`, que contém a senha e os registros do seu teste.
+
+## Agenda interna escolhida pela JR
+
+Na produção da JR, `CALENDAR_MODE=internal` mantém a disponibilidade, os bloqueios, as reservas e o acompanhamento exclusivamente no PostgreSQL e no painel. Nenhum OAuth Google é necessário e nenhuma chamada ao Google Calendar é feita nesse modo, mesmo que existam credenciais antigas. Reservas temporárias de 60 minutos, fuso America/Sao_Paulo, duração e intervalo por serviço e proteção contra sobreposição continuam valendo. Filas antigas de sincronização são encerradas sem editar eventos externos. A regra de confirmação do pagamento permanece independente da agenda.
