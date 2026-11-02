@@ -4,7 +4,7 @@ import {audit,one} from './db.js';
 export const recoveryMessage='Se houver uma conta ativa com esse e-mail, você receberá um link para criar uma nova senha. Confira também a pasta de spam. O link vale por 15 minutos.';
 export class PasswordRecovery{
  constructor(db,env,email){Object.assign(this,{db,env,email});}
- ready(){return this.email.ready()&&typeof this.email.deliver==='function'&&String(this.env.EMAIL_LOOKUP_SECRET||'').length>=32&&/^https:\/\//.test(this.env.APP_URL||'');}
+ ready(){return (!(this.env.SMTP_HOST||this.env.SMTP_USER)||!!(this.env.SMTP_HOST&&this.env.SMTP_USER&&this.env.SMTP_PASSWORD))&&this.email.ready()&&typeof this.email.deliver==='function'&&String(this.env.EMAIL_LOOKUP_SECRET||'').length>=32&&/^https:\/\//.test(this.env.APP_URL||'');}
  key(){return createHash('sha256').update('rr-password-recovery:'+this.env.EMAIL_LOOKUP_SECRET).digest();}
  seal(value){const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',this.key(),iv);const encrypted=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return [iv,cipher.getAuthTag(),encrypted].map(x=>x.toString('base64')).join('.');}
  open(value){const [iv,tag,data]=value.split('.').map(x=>Buffer.from(x,'base64'));const decipher=createDecipheriv('aes-256-gcm',this.key(),iv);decipher.setAuthTag(tag);return Buffer.concat([decipher.update(data),decipher.final()]).toString('utf8');}
