@@ -48,8 +48,8 @@ export async function franchiseAdminWrite(db,user,x){
   await db.query('INSERT INTO franchise_tasks(lead_id,title,due_at,actor_id) VALUES($1,$2,$3,$4)',[lead.id,title,due,user.id]);
  }else if(x.action==='complete_task'){
   requireValue(/^[0-9a-f-]{36}$/i.test(x.task_id||''),'Tarefa inválida');
-  const t=await db.query('UPDATE franchise_tasks SET completed_at=now() WHERE id=$1 AND lead_id=$2 AND completed_at IS NULL',[x.task_id,lead.id]);
-  requireValue(t.rowCount===1,'Tarefa já encerrada ou inexistente',404);
+  const t=await db.query('UPDATE franchise_tasks SET completed_at=now() WHERE id=$1 AND lead_id=$2 AND completed_at IS NULL RETURNING id',[x.task_id,lead.id]);
+  requireValue(t.rows.length===1,'Tarefa já encerrada ou inexistente',404);
  }else requireValue(false,'Ação inválida');
  await audit(db,user.id,'franchise.'+x.action,lead.id);
  return {ok:true};
