@@ -10,7 +10,7 @@ Arquitetura preservada: Node.js, PostgreSQL, frontend HTML/CSS/JavaScript, API H
 
 - Homepage com composição institucional tipográfica, sem fotografias artificiais apresentadas como pessoas reais. Fontes locais, navegação feminina/masculina, preços gerados pelo catálogo ativo. Arquivos de mídia originais preservados no histórico e assets existentes.
 - Rafaela Cristine e Ruan Marcos mantêm recursos independentes, sem atribuir reservas antigas arbitrariamente. CTA seleciona o serviço do profissional correspondente.
-- Preparação idempotente do catálogo no painel: avulsa R$229,90; Tradicional 3 R$629,90; Tradicional 5 R$999,90; Express 5 R$1.049,90. Pacote Express de R$719,90 não é vendido enquanto a quantidade não for confirmada.
+- Preparação idempotente do catálogo no painel: avulsa R$229,90; Tradicional 3 R$629,90; Tradicional 5 R$999,90; Express 5 R$1.049,90. Express 3 sessões R$719,90 confirmado pelo titular em 10/11/2026 e incluído no catálogo.
 - Preparação copia horários somente se existir exatamente um recurso legado sem profissional chamado `Atendimento R&R`; de outro modo exige configuração. Duração inicial 60 minutos e validade inicial 90 dias seguem o modelo existente e devem ser conferidas no painel.
 - Ativação comercial separada e transacional: exige cuidados, horários, criptografia, retenção e confirmação do backup. Salva configuração anterior em `catalog_before_nov2026`. Não altera preços registrados em reservas/pagamentos. Bloqueia retirada de serviços com créditos legados válidos.
 - Política comercial nova sem taxa de deslocamento. Checkout mantém valor registrado na reserva, sem cobrança adicional de transporte.
@@ -62,7 +62,7 @@ O código anterior está preservado em `25192e1` e no histórico Git. Há bundle
 
 ## Pendências comerciais e operacionais
 
-- Quantidade de sessões do Express de R$719,90.
+- Express de R$719,90 confirmado como 3 sessões; pendência comercial resolvida.
 - Retenção das fichas e ciclo de backups; chave privada de criptografia.
 - Validação das orientações da ficha/procedimento pela equipe responsável.
 - Contas de Rafaela/Ruan e vínculos, disponibilidade individual, capacidade simultânea e vestimenta masculina.
