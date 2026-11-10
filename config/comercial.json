@@ -2,30 +2,37 @@
   "currency": "BRL",
   "service": {
     "name": "Sessão de bronzeamento",
-    "price_cents": 36000,
+    "price_cents": 22990,
     "duration_minutes": 60,
     "buffer_minutes": 0,
     "active": false
   },
   "packages": [
     {
-      "name": "Pacote de 3 sessões",
-      "price_cents": 97200,
+      "name": "Pacote Bronze Tradicional — 3 sessões",
+      "price_cents": 62990,
       "sessions": 3,
       "validity_days": 90,
       "active": false
     },
     {
-      "name": "Pacote de 5 sessões",
-      "price_cents": 153000,
+      "name": "Pacote Bronze Tradicional — 5 sessões",
+      "price_cents": 99990,
+      "sessions": 5,
+      "validity_days": 90,
+      "active": false
+    },
+    {
+      "name": "Pacote Bronze Express — 5 sessões",
+      "price_cents": 104990,
       "sessions": 5,
       "validity_days": 90,
       "active": false
     }
   ],
   "notes": [
-    "Preço inicial autorizado pelo usuário: R$ 360,00.",
-    "Pacotes calculados a partir da sessão avulsa: 10% em três sessões e 15% em cinco.",
+    "Pacote Bronze Express de R$ 719,90 aguarda confirmação da quantidade de sessões e está fora do cadastro.",
+    "Confirme o procedimento e a agenda de cada pacote antes da ativação.",
     "Duração inicial de 60 minutos e validade inicial de 90 dias precisam ser conferidas pelo estabelecimento.",
     "Não há pesquisa de mercado verificável registrada nesta conversa.",
     "Não preencher endereço, WhatsApp, horários ou credenciais com dados fictícios.",
