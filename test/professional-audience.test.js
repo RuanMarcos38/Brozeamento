@@ -13,3 +13,12 @@ test('Ruan Marcos recebe recurso masculino isolado e não altera reservas femini
   assert.ok(!active.some(s=>s.resource_id===resources[0].id));
  }finally{await f.close();}
 });
+test('Rafaela Cristine recebe agenda feminina separada sem ativar serviços',async()=>{
+ const f=await fixture();try{
+  const {rows}=await f.db.query("SELECT r.id,r.audience FROM resources r JOIN staff s ON s.id=r.staff_id WHERE lower(s.name)='rafaela cristine'");
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].audience,'feminino');
+  assert.notEqual(rows[0].id,f.resource);
+  assert.ok(!(await f.booking.services()).some(service=>service.resource_id===rows[0].id));
+ }finally{await f.close();}
+});
