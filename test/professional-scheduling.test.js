@@ -28,6 +28,14 @@ test('professional agendas preserve legacy history, isolate slots and filter all
  assert.equal(female.upcoming.length,1);assert.equal(male.upcoming.length,1);
  assert.equal(Number(female.trend.reduce((s,x)=>s+Number(x.gross),0)),22990);
  const agenda=await adminData(f.db,'agenda',range);assert.equal(agenda.bookings.find(b=>b.id===first.id).professional_name,'Rafaela Cristine');
+ const clients=await adminData(f.db,'clientes');
+ const history=clients.customers.flatMap(c=>c.bookings);
+ assert.equal(history.find(b=>b.id===first.id).professional_name,'Rafaela Cristine');
+ assert.equal(history.find(b=>b.id===second.id).professional_name,'Ruan Marcos');
+ assert.equal(history.find(b=>b.id===old.id).professional_name,null);
+ const finance=await adminData(f.db,'financeiro');
+ assert.equal(finance.payments.find(p=>p.booking_id===first.id).professional_name,'Rafaela Cristine');
+ assert.equal(finance.payments.find(p=>p.booking_id===second.id).professional_name,'Ruan Marcos');
  assert.equal((await f.db.query('SELECT count(*)::int n FROM packages WHERE service_id=$1',[services[0].id])).rows[0].n,1);
  await assert.rejects(dashboardData(f.db,{...range,professional_id:'invalid'}),/Profissional inválido/);
  }finally{await f.close();}
