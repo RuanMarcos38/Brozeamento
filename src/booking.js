@@ -1,10 +1,11 @@
+import {enqueueCustomerConfirmation} from './customer-crm.js';
 import {clinicalReady} from './anamnesis.js';
 import { randomUUID } from 'node:crypto';
 import { one,all,audit } from './db.js';
 import { hash,token,requireValue,HttpError,customerInput,uuid,receiptToken } from './security.js';
 export const overlaps=(a,b,c,d)=>new Date(a)<new Date(d)&&new Date(c)<new Date(b);
 export function localParts(value){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value));const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));return {date:p.year+'-'+p.month+'-'+p.day,time:p.hour+':'+p.minute+':'+p.second,weekday:new Date(p.year+'-'+p.month+'-'+p.day+'T12:00:00Z').getUTCDay()};}
-export async function queue(db,b,kind,version='initial'){await db.query('INSERT INTO notifications(booking_id,kind,dedupe_key) VALUES($1,$2,$3) ON CONFLICT(dedupe_key) DO NOTHING',[b.id,kind,kind+':'+b.id+':'+version]);}
+export async function queue(db,b,kind,version='initial'){if(kind==='confirmation'&&await enqueueCustomerConfirmation(db,b.id))return;await db.query('INSERT INTO notifications(booking_id,kind,dedupe_key) VALUES($1,$2,$3) ON CONFLICT(dedupe_key) DO NOTHING',[b.id,kind,kind+':'+b.id+':'+version]);}
 export class BookingService{
  constructor(db,{gateway,calendar,email,ownerAlerts,env=process.env,now=()=>new Date()}={}){Object.assign(this,{db,gateway,calendar,email,ownerAlerts,env,now});}
  async settings(db=this.db){return (await one(db,"SELECT value FROM settings WHERE key='booking'")).value;}
