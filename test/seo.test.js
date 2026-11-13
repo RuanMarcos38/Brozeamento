@@ -2,13 +2,56 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture} from './helpers.js';
 import {app} from '../src/app.js';
-test('HTML público e dados estruturados acompanham preços ativos, sem depender de JavaScript',async()=>{
+test('Página pública explica os procedimentos e mantém os preços na agenda',async()=>{
  const f=await fixture();const env={APP_URL:'https://jr.example.invalid',CALENDAR_MODE:'internal',NODE_ENV:'production'};const {server}=app(f.db,{env,gateway:f.gateway,calendar:f.calendar,email:f.email});await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
  try{
  await f.db.query('UPDATE services SET name=$1,price_cents=36000 WHERE id=$2',['Sessão <especial> & cuidado',f.serviceId]);
  await f.db.query('INSERT INTO packages(service_id,name,price_cents,sessions,validity_days,active) VALUES($1,$2,97200,3,90,true)',[f.serviceId,'Pacote de 3 sessões']);
  let response=await fetch(base+'/'),html=await response.text();
- assert.equal(response.status,200);assert.ok(response.headers.get('content-security-policy').includes('upgrade-insecure-requests'));assert.equal(response.headers.get('strict-transport-security'),'max-age=31536000');assert.ok(html.includes('R$ 360,00'));assert.ok(html.includes('R$ 972,00'));assert.ok(html.includes('class="service-list"'));assert.ok(!html.includes('class="price-card"'));assert.ok(html.includes('90 dias'));assert.ok(html.includes('Sessão &lt;especial&gt; &amp; cuidado'));
+ assert.equal(response.status,200);assert.ok(response.headers.get('content-security-policy').includes('upgrade-insecure-requests'));assert.equal(response.headers.get('strict-transport-security'),'max-age=31536000');assert.ok(html.includes('class="procedure-grid"'));assert.ok(html.includes('Bronze Tradicional'));assert.ok(html.includes('Bronze Express'));assert.ok(!html.includes('R
+ assert.ok(!html.includes('https://fonts.googleapis.com'));assert.ok(!html.includes('https://fonts.gstatic.com'));assert.ok(html.includes('/assets/rr-fonts.css?v=ssl2'));assert.ok(!html.includes('taxa de deslocamento'));assert.ok(html.includes('Joinville'));assert.ok(html.includes('rel="canonical" href="'+env.APP_URL+'/"/>')||html.includes('rel="canonical" href="'+env.APP_URL+'/">'));
+ const data=JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);const service=data['@graph'].find(x=>x['@type']==='Service');assert.equal(service.offers,undefined);assert.equal(service.name,'Sessão <especial> & cuidado');assert.equal(service.areaServed.name,'Joinville');assert.equal((html.match(/<h1>/g)||[]).length,1);assert.ok(html.includes('class="hero-image"><img'));assert.ok(!html.includes('Ruan Marcos'));assert.ok(!html.includes('Rafaela Cristine'));
+ const catalog=await (await fetch(base+'/api/services')).json();
+ assert.equal(Number(catalog.services.find(service=>service.id===f.serviceId).price_cents),36000);
+ assert.equal(Number(catalog.packages.find(plan=>plan.service_id===f.serviceId).price_cents),97200);
+ response=await fetch(base+'/index.html',{redirect:'manual'});assert.equal(response.status,301);assert.equal(response.headers.get('location'),'/');
+ const robots=await (await fetch(base+'/robots.txt')).text();assert.ok(robots.includes('Sitemap: '+env.APP_URL+'/sitemap.xml'));assert.ok(robots.includes('Disallow: /primeiro-acesso'));
+ const font=await fetch(base+'/assets/rr-dm-sans-0.woff2');assert.equal(font.status,200);assert.equal(font.headers.get('content-type'),'font/woff2');const localCss=await fetch(base+'/assets/rr-fonts.css?v=ssl2');assert.equal(localCss.status,200);assert.ok((await localCss.text()).includes('/assets/rr-playfair-display-1.woff2'));const image=await fetch(base+'/assets/jr-bronzeamento.webp');assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/webp');
+ }finally{server.closeAllConnections();await new Promise(r=>server.close(r));await f.close();}
+});
+
+test('agendamento valida o público cadastrado e mantém o bloqueio de horários', async () => {
+ const f=await fixture();
+ const env={APP_URL:'http://localhost',CALENDAR_MODE:'internal',CALENDAR_REQUIRED:'false'};
+ const {server}=app(f.db,{env,gateway:f.gateway,calendar:f.calendar,email:f.email});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const base='http://127.0.0.1:'+server.address().port;
+ const reserve=payload=>fetch(base+'/api/bookings',{
+  method:'POST',headers:{'Content-Type':'application/json',Origin:env.APP_URL},body:JSON.stringify(payload)
+ });
+ try{
+  const staff=(await f.db.query("SELECT id FROM staff WHERE name='Rafaela Cristine'")).rows[0];
+  await f.db.query("UPDATE resources SET staff_id=$1,audience='feminino' WHERE id=$2",[staff.id,f.resource]);
+  const catalog=await (await fetch(base+'/api/services')).json();
+  const selected=catalog.services.find(service=>service.id===f.serviceId);
+  assert.equal(selected.staff_id,staff.id);
+  assert.equal(selected.audience,'feminino');
+  const mismatch=await reserve({...f.input,gender:'masculino'});
+  assert.equal(mismatch.status,400);
+  const reservation=await reserve({...f.input,gender:'feminino'});
+  assert.equal(reservation.status,201,await reservation.clone().text());
+  const duplicate=await reserve({...f.input,gender:'feminino',token:'b'.repeat(64)});
+  assert.equal(duplicate.status,409);
+  const saved=(await f.db.query('SELECT service_id,resource_id FROM bookings WHERE resource_id=$1',[f.resource])).rows;
+  assert.deepEqual(saved,[{service_id:f.serviceId,resource_id:f.resource}]);
+  assert.equal(f.emails.length,0);
+ }finally{
+  server.closeAllConnections();
+  await new Promise(resolve=>server.close(resolve));
+  await f.close();
+ }
+});
+));
  assert.ok(!html.includes('https://fonts.googleapis.com'));assert.ok(!html.includes('https://fonts.gstatic.com'));assert.ok(html.includes('/assets/rr-fonts.css?v=ssl2'));assert.ok(!html.includes('taxa de deslocamento'));assert.ok(html.includes('Joinville'));assert.ok(html.includes('rel="canonical" href="'+env.APP_URL+'/"/>')||html.includes('rel="canonical" href="'+env.APP_URL+'/">'));
  const data=JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);const service=data['@graph'].find(x=>x['@type']==='Service');assert.equal(service.offers[0].price,'360.00');assert.equal(service.offers[1].price,'972.00');assert.equal(service.areaServed.name,'Joinville');assert.equal((html.match(/<h1>/g)||[]).length,1);assert.ok(html.includes('class="hero-image"><img'));assert.ok(!html.includes('Ruan Marcos'));assert.ok(!html.includes('Rafaela Cristine'));
  await f.db.query('UPDATE services SET price_cents=40000 WHERE id=$1',[f.serviceId]);html=await (await fetch(base+'/')).text();assert.ok(html.includes('R$ 400,00'));assert.ok(!html.includes('R$ 360,00'));
