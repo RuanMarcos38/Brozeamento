@@ -26,7 +26,7 @@ test('agendamento valida o público cadastrado e mantém o bloqueio de horários
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const base='http://127.0.0.1:'+server.address().port;
  const reserve=payload=>fetch(base+'/api/bookings',{
-  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+  method:'POST',headers:{'Content-Type':'application/json',Origin:env.APP_URL},body:JSON.stringify(payload)
  });
  try{
   const staff=(await f.db.query("SELECT id FROM staff WHERE name='Rafaela Cristine'")).rows[0];
