@@ -4,3 +4,14 @@
 .footer-links{flex-wrap:wrap}
 @media(max-width:1100px){.hamburger{display:block}.links{display:none;position:absolute;top:86px;left:0;right:0;padding:22px;background:var(--paper);border-bottom:1px solid var(--line);flex-direction:column;align-items:stretch;gap:18px}.links.open{display:flex}.links>a{font-size:1rem}.links .btn{width:100%}}
 @media(max-width:700px){.links{top:72px}}
+
+#inicio,#valores,#preparacao,#sobre,#duvidas{scroll-margin-top:100px}
+#valores,#preparacao,#agendar{padding-block:clamp(36px,6vw,72px)}
+.service-list{list-style:none;margin:22px 0;padding:0;border-top:1px solid var(--line)}
+.service-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px 24px;padding:16px 0;border-bottom:1px solid var(--line)}
+.service-row h3,.service-row p{margin:0}.service-row p{margin-top:4px}.service-price{white-space:nowrap;font-variant-numeric:tabular-nums}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.preparation-grid{display:block}.preparation-card,.preparation-note,.price-conditions{margin:10px 0;padding:14px 18px}
+.preparation-card summary,.preparation-note summary,.price-conditions summary{cursor:pointer;font-weight:700}
+@media(max-width:600px){.service-row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px}.service-row>div{grid-column:1/-1}.service-row>.btn{min-height:44px;justify-self:end}.service-row .service-price{grid-column:1}}
+#professional-field[hidden]{display:none}

@@ -9,7 +9,7 @@ export async function queue(db,b,kind,version='initial'){if(kind==='confirmation
 export class BookingService{
  constructor(db,{gateway,calendar,email,ownerAlerts,env=process.env,now=()=>new Date()}={}){Object.assign(this,{db,gateway,calendar,email,ownerAlerts,env,now});}
  async settings(db=this.db){return (await one(db,"SELECT value FROM settings WHERE key='booking'")).value;}
- async services(){return all(this.db,"SELECT s.id,s.name,s.description,s.price_cents,s.duration_minutes,s.buffer_minutes,s.care,s.anamnesis_required,s.resource_id,r.audience,st.name AS professional_name FROM services s JOIN resources r ON r.id=s.resource_id LEFT JOIN staff st ON st.id=r.staff_id WHERE s.active=true AND r.active=true ORDER BY s.name");}
+ async services(){return all(this.db,"SELECT s.id,s.name,s.description,s.price_cents,s.duration_minutes,s.buffer_minutes,s.care,s.anamnesis_required,s.resource_id,r.audience,r.staff_id,st.name AS professional_name FROM services s JOIN resources r ON r.id=s.resource_id LEFT JOIN staff st ON st.id=r.staff_id WHERE s.active=true AND r.active=true ORDER BY s.name");}
  async getService(id,db=this.db){requireValue(uuid(id),'Serviço inválido');const s=await one(db,'SELECT s.* FROM services s JOIN resources r ON r.id=s.resource_id WHERE s.id=$1 AND s.active AND r.active',[id]);requireValue(s,'Serviço indisponível',404);return s;}
  internalCalendar(){return this.env.CALENDAR_MODE==='internal';}
  async queueCalendar(db,b,version='initial'){if(!this.internalCalendar())await queue(db,b,'calendar',version);}
