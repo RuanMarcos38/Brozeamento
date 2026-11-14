@@ -26,7 +26,38 @@ export async function readClinical(db,env,b,{user=null,id=null}={}){
  let row;if(user){requireValue(uuid(id),'Ficha inválida');row=await one(db,'SELECT a.* FROM anamneses a WHERE a.id=$1 AND ( $2::boolean OR EXISTS(SELECT 1 FROM clinical_access ca WHERE ca.user_id=$3 AND ca.staff_id=a.staff_id))',[id,user.role==='owner',user.id]);requireValue(row,'Ficha não encontrada ou acesso não autorizado',404);}else row=await one(db,'SELECT * FROM anamneses WHERE booking_id=$1 ORDER BY revision DESC LIMIT 1',[b.id]);
  if(!row)return null;requireValue(new Date(row.expires_at)>new Date(),'Prazo de retenção da ficha encerrado',410);const payload=decrypt(row.encrypted_payload,env,row.booking_id+':'+row.revision);await audit(db,user?.id,'anamnesis.read',row.id);return {id:row.id,booking_id:row.booking_id,revision:row.revision,accepted_at:row.accepted_at,digest:row.digest,payload};
 }
-export async function listClinical(db,user){return {forms:await all(db,'SELECT a.id,a.booking_id,a.revision,a.accepted_at,c.name,st.name professional_name FROM anamneses a JOIN customers c ON c.id=a.customer_id JOIN staff st ON st.id=a.staff_id WHERE a.expires_at>now() AND ($1::boolean OR EXISTS(SELECT 1 FROM clinical_access ca WHERE ca.user_id=$2 AND ca.staff_id=a.staff_id)) ORDER BY a.accepted_at DESC LIMIT 500',[user.role==='owner',user.id])};}
+const reviewFields = new Set([
+ 'respiratory', 'pressure', 'epilepsy', 'degenerative', 'allergies', 'wounds',
+ 'bruises', 'medication', 'pregnancy', 'vitiligo', 'psoriasis'
+]);
+
+export function clinicalReview(payload) {
+ return questions.filter(([id]) => reviewFields.has(id) && payload.answers?.[id]?.value === 'SIM')
+  .map(([,label]) => label);
+}
+
+export async function listClinical(db,user,{env,customerIds=null}={}){
+ const forms=await all(db,`
+  SELECT a.id,a.booking_id,a.customer_id,a.revision,a.accepted_at,c.name,st.name professional_name
+  ${env ? ',a.encrypted_payload' : ''}
+  FROM anamneses a JOIN customers c ON c.id=a.customer_id JOIN staff st ON st.id=a.staff_id
+  WHERE a.expires_at>now()
+   AND ($1::boolean OR EXISTS(SELECT 1 FROM clinical_access ca WHERE ca.user_id=$2 AND ca.staff_id=a.staff_id))
+   AND ($3::uuid[] IS NULL OR a.customer_id=ANY($3))
+   AND ($3::uuid[] IS NULL OR NOT EXISTS (
+    SELECT 1 FROM anamneses newer WHERE newer.booking_id=a.booking_id AND newer.revision>a.revision
+   ))
+  ORDER BY a.accepted_at DESC ${customerIds===null?'LIMIT 500':''}`,[user.role==='owner',user.id,customerIds]);
+ return {forms:forms.map(({encrypted_payload,...form})=>{
+  if(!env)return form;
+  try {
+   const payload=decrypt(encrypted_payload,env,form.booking_id+':'+form.revision);
+   return {...form,name:payload.name||form.name,review:clinicalReview(payload).length?'review':'none'};
+  } catch {
+   return {...form,review:'unavailable'};
+  }
+ })};
+}
 export async function clinicalPDF(record){
  const {PDFDocument,StandardFonts,rgb}=await import('pdf-lib');const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.Helvetica);let page,y;const add=()=>{page=pdf.addPage([595,842]);y=790;};add();
  const text=(value,size=10)=>{const safe=String(value).replace(/[^\u0020-\u00ff\n]/g,' ');let line='';for(const word of safe.split(/\s+/)){if(font.widthOfTextAtSize(line+' '+word,size)>490){if(y<65)add();page.drawText(line,{x:48,y,size,font});y-=17;line='';}line+=(line?' ':'')+word;}if(y<65)add();page.drawText(line,{x:48,y,size,font});y-=22;};
