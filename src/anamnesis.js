@@ -28,18 +28,65 @@ export async function readClinical(db,env,b,{user=null,id=null}={}){
 }
 const reviewFields = new Set([
  'respiratory', 'pressure', 'epilepsy', 'degenerative', 'allergies', 'wounds',
- 'bruises', 'medication', 'pregnancy', 'vitiligo', 'psoriasis'
+ 'bruises', 'medication', 'pregnancy', 'vitiligo', 'psoriasis', 'fasting', 'sweating'
 ]);
 
 export function clinicalReview(payload) {
- return questions.filter(([id]) => reviewFields.has(id) && payload.answers?.[id]?.value === 'SIM')
-  .map(([,label]) => label);
+ const alerts=[];
+ for(const [id,label,detail,options] of questions){
+  const answer=payload.answers?.[id];
+  if(!(options||['SIM','NÃO']).includes(answer?.value) ||
+   (detail && answer.value==='SIM' && (typeof answer.detail!=='string'||!answer.detail.trim()))){
+   alerts.push('Resposta incompleta ou inválida — '+label);
+  }else if((reviewFields.has(id)&&answer.value==='SIM') ||
+   (id==='depilation'&&answer.value==='SIM*menos 48h')){
+   alerts.push(label);
+  }
+ }
+ return alerts;
+}
+
+async function latestClinical(db,bookingId){
+ return one(db,`SELECT a.*, a.expires_at>now() AS current,
+  EXISTS(SELECT 1 FROM audit_logs l WHERE l.action='anamnesis.reviewed' AND l.entity_id=a.id::text) AS reviewed
+  FROM anamneses a WHERE a.booking_id=$1 ORDER BY a.revision DESC LIMIT 1`,[bookingId]);
+}
+
+function verifiedClinical(row,env){
+ requireValue(row?.current,'Ficha ausente ou vencida. Solicite uma ficha válida antes do atendimento.',409);
+ try{
+  return decrypt(row.encrypted_payload,env,row.booking_id+':'+row.revision);
+ }catch{
+  requireValue(false,'Ficha indisponível para conferência.',409);
+ }
+}
+
+export async function recordClinicalReview(db,env,user,{id,reviewed}){
+ requireValue(uuid(id)&&reviewed===true,'Confirme a conferência da ficha.');
+ return db.transaction(async tx=>{
+  const booking=await one(tx,`SELECT b.id FROM bookings b JOIN anamneses a ON a.booking_id=b.id
+   WHERE a.id=$1 AND ($2::boolean OR EXISTS(SELECT 1 FROM clinical_access ca WHERE ca.user_id=$3 AND ca.staff_id=a.staff_id))
+   FOR UPDATE OF b`,[id,user.role==='owner',user.id]);
+  requireValue(booking&&user.role!=='viewer','Ficha não encontrada ou acesso não autorizado',404);
+  const row=await latestClinical(tx,booking.id);
+  requireValue(row?.id===id,'Abra a versão mais recente da ficha.',409);
+  const payload=verifiedClinical(row,env);
+  requireValue(!clinicalReview(payload).some(alert=>alert.startsWith('Resposta incompleta ou inválida')),'Solicite uma nova ficha com todas as respostas completas.',409);
+  if(!row.reviewed)await audit(tx,user.id,'anamnesis.reviewed',id);
+  return {ok:true};
+ });
+}
+
+export async function requireClinicalReview(db,env,bookingId){
+ const row=await latestClinical(db,bookingId);
+ verifiedClinical(row,env);
+ requireValue(row.reviewed,'A versão atual da ficha precisa ser conferida antes de registrar o atendimento.',409);
 }
 
 export async function listClinical(db,user,{env,customerIds=null}={}){
  const forms=await all(db,`
   SELECT a.id,a.booking_id,a.customer_id,a.revision,a.accepted_at,c.name,st.name professional_name
-  ${env ? ',a.encrypted_payload' : ''}
+  ${env ? `,a.encrypted_payload, EXISTS(SELECT 1 FROM audit_logs l WHERE l.action='anamnesis.reviewed' AND l.entity_id=a.id::text) AS reviewed` : ''}
   FROM anamneses a JOIN customers c ON c.id=a.customer_id JOIN staff st ON st.id=a.staff_id
   WHERE a.expires_at>now()
    AND ($1::boolean OR EXISTS(SELECT 1 FROM clinical_access ca WHERE ca.user_id=$2 AND ca.staff_id=a.staff_id))
@@ -52,7 +99,7 @@ export async function listClinical(db,user,{env,customerIds=null}={}){
   if(!env)return form;
   try {
    const payload=decrypt(encrypted_payload,env,form.booking_id+':'+form.revision);
-   return {...form,name:payload.name||form.name,review:clinicalReview(payload).length?'review':'none'};
+   return {...form,name:payload.name||form.name,review:clinicalReview(payload).length?'review':'required'};
   } catch {
    return {...form,review:'unavailable'};
   }
@@ -63,5 +110,5 @@ export async function clinicalPDF(record){
  const text=(value,size=10)=>{const safe=String(value).replace(/[^\u0020-\u00ff\n]/g,' ');let line='';for(const word of safe.split(/\s+/)){if(font.widthOfTextAtSize(line+' '+word,size)>490){if(y<65)add();page.drawText(line,{x:48,y,size,font});y-=17;line='';}line+=(line?' ':'')+word;}if(y<65)add();page.drawText(line,{x:48,y,size,font});y-=22;};
  text('R&R BRONZEAMENTO',18);text('FICHA DE ANAMNESE - BRONZEAMENTO A JATO',13);const p=record.payload;
  const names={evaluation_date:'Data da avaliação',name:'Nome',sex:'Sexo',birth_date:'Data de nascimento',phone:'Telefone',email:'E-mail',profession:'Profissão',phototype:'Fototipo',location:'Local',clothing:'Vestimenta'};
- for(const [field,label]of Object.entries(names))text(label+': '+p[field]);for(const [id,label]of questions)text(label+' '+p.answers[id].value+(p.answers[id].detail?' - '+p.answers[id].detail:''));text(clothingNotice);text('TERMO DE RESPONSABILIDADE',13);text(p.term);text('Aceite do termo e consentimento para tratamento de dados de saúde registrados.');if(y<180)add();text('Assinatura eletrônica:');if(p.typed_signature)text(p.typed_signature,16);const top=y;for(const stroke of p.signature)for(let i=1;i<stroke.length;i++)page.drawLine({start:{x:48+stroke[i-1][0]*450,y:top-stroke[i-1][1]*100},end:{x:48+stroke[i][0]*450,y:top-stroke[i][1]*100},thickness:1.2,color:rgb(.15,.1,.08)});y-=125;text('Reserva: '+record.booking_id);text('Versão: '+p.version+' | Revisão: '+record.revision+' | Aceite: '+new Date(record.accepted_at).toISOString());text('SHA-256: '+record.digest,8);return Buffer.from(await pdf.save());
+ for(const [field,label]of Object.entries(names))text(label+': '+p[field]);for(const [id,label]of questions)text(label+' '+(p.answers?.[id]?.value||'Não informado')+(p.answers?.[id]?.detail?' - '+p.answers[id].detail:''));text(clothingNotice);text('TERMO DE RESPONSABILIDADE',13);text(p.term);text('Aceite do termo e consentimento para tratamento de dados de saúde registrados.');if(y<180)add();text('Assinatura eletrônica:');if(p.typed_signature)text(p.typed_signature,16);const top=y;for(const stroke of p.signature)for(let i=1;i<stroke.length;i++)page.drawLine({start:{x:48+stroke[i-1][0]*450,y:top-stroke[i-1][1]*100},end:{x:48+stroke[i][0]*450,y:top-stroke[i][1]*100},thickness:1.2,color:rgb(.15,.1,.08)});y-=125;text('Reserva: '+record.booking_id);text('Versão: '+p.version+' | Revisão: '+record.revision+' | Aceite: '+new Date(record.accepted_at).toISOString());text('SHA-256: '+record.digest,8);return Buffer.from(await pdf.save());
 }
