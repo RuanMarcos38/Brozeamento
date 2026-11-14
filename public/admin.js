@@ -162,4 +162,28 @@ function renderClinicalList(x){
  ])));
  if(role==='owner')renderDemoAnamneses();
 }
-function renderUsers(x){const p=panel('Usuários e permissões');p.append(el('p','Profissionais consultam somente as agendas, clientes e fichas vinculadas. Proprietários acessam a gestão completa. Cada alteração de acesso é auditada. A criação de contas e recuperação de senha utiliza o fluxo privado existente.'));for(const u of x.users){const block=el('section');block.append(el('h3',u.email),form('Editar permissões',[['role','Perfil','select',[{id:'owner',name:'Proprietário'},{id:'manager',name:'Gestor'},{id:'viewer',name:'Consulta administrativa'},{id:'professional',name:'Profissional — somente atendimentos vinculados'}]],['active','Conta ativa','checkbox'],['staff_id','Profissional vinculado','select',[{id:'',name:'Sem acesso clínico adicional'},...x.staff]]],'usuarios',{id:u.id,role:u.role,active:u.active,staff_id:u.staff_ids?.[0]||''}));p.append(block);}}
+function renderUsers(x){
+ const p=panel('Usuários e permissões');
+ const profiles=[
+  {id:'viewer',name:'Consulta administrativa'},
+  {id:'manager',name:'Gestor'},
+  {id:'professional',name:'Profissional — somente atendimentos vinculados'},
+  {id:'owner',name:'Proprietário — gestão completa'}
+ ];
+ const accessFields=[
+  ['role','Perfil','select',profiles],
+  ['staff_id','Profissional vinculado','select',[{id:'',name:'Sem acesso clínico adicional'},...x.staff]]
+ ];
+ p.append(el('p','Cada alteração de acesso é auditada. O vínculo profissional permite consultar dados clínicos da agenda vinculada.'));
+ p.append(form('Criar usuário',[['email','E-mail da conta','email'],...accessFields],'usuarios',{action:'create',role:'viewer'}));
+ const passwordHelp=el('p','Após o cadastro, a pessoa deve definir sua senha pela opção ');
+ passwordHelp.append(el('a','Esqueci minha senha',{href:'/admin/recuperar-senha'}),document.createTextNode(', usando o e-mail cadastrado.'));
+ p.append(passwordHelp);
+ for(const u of x.users){
+  const block=el('section');
+  block.append(el('h3',u.email),form('Editar permissões',[
+   ...accessFields,['active','Conta ativa','checkbox']
+  ],'usuarios',{id:u.id,role:u.role,active:u.active,staff_id:u.staff_ids?.[0]||''}));
+  p.append(block);
+ }
+}
