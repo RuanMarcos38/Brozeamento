@@ -1,0 +1,22 @@
+/* Preserve the original photographic identity and responsive navigation. */
+.links{gap:18px}.links>a{font-size:.8rem}
+.price-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,285px),1fr));gap:22px}
+.footer-links{flex-wrap:wrap}
+@media(max-width:1100px){.hamburger{display:block}.links{display:none;position:absolute;top:86px;left:0;right:0;padding:22px;background:var(--paper);border-bottom:1px solid var(--line);flex-direction:column;align-items:stretch;gap:18px}.links.open{display:flex}.links>a{font-size:1rem}.links .btn{width:100%}}
+@media(max-width:700px){.links{top:72px}}
+
+#inicio,#valores,#preparacao,#sobre,#duvidas{scroll-margin-top:100px}
+#valores,#preparacao,#agendar{padding-block:clamp(36px,6vw,72px)}
+.preparation-grid{display:block}.preparation-card,.preparation-note,.price-conditions{margin:10px 0;padding:14px 18px}
+.preparation-card summary,.preparation-note summary,.price-conditions summary{cursor:pointer;font-weight:700}
+#professional-field[hidden]{display:none}
+
+.procedures{padding-block:clamp(42px,7vw,88px)}
+.procedures h2{margin-bottom:8px}
+.procedure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:24px}
+.procedure-grid article{padding:clamp(18px,3vw,30px);border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.procedure-grid h3{margin:0 0 8px;font-size:1.35rem}
+.procedure-grid p{margin:0 0 10px}
+.procedure-grid p:last-child,.procedure-actions p{margin:0}
+.procedure-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:24px}
+@media(max-width:620px){.procedure-grid{grid-template-columns:1fr}.procedure-actions .btn{min-height:44px}}

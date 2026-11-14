@@ -28,10 +28,16 @@
       "sessions": 5,
       "validity_days": 90,
       "active": false
+    },
+    {
+      "name": "Pacote Bronze Express — 3 sessões",
+      "price_cents": 71990,
+      "sessions": 3,
+      "validity_days": 90,
+      "active": false
     }
   ],
   "notes": [
-    "Pacote Bronze Express de R$ 719,90 aguarda confirmação da quantidade de sessões e está fora do cadastro.",
     "Confirme o procedimento e a agenda de cada pacote antes da ativação.",
     "Duração inicial de 60 minutos e validade inicial de 90 dias precisam ser conferidas pelo estabelecimento.",
     "Não há pesquisa de mercado verificável registrada nesta conversa.",

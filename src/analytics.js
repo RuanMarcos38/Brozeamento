@@ -1,5 +1,5 @@
 import {one,all} from './db.js';
-import {requireValue} from './security.js';
+import {requireValue,uuid} from './security.js';
 export function analyticsRange(query={}){
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo'}).format(new Date());
  const from=query.from||new Date(new Date(today+'T12:00:00Z').getTime()-29*86400000).toISOString().slice(0,10),to=query.to||today;
@@ -10,6 +10,17 @@ export function analyticsRange(query={}){
  return {from,to,days,previousFrom,previousTo};
 }
 export async function dashboardData(db,query={}){
+ const professionals=await all(db,"SELECT id,name FROM staff WHERE active ORDER BY name");
+ const professionalId=query.professional_id||'';
+ requireValue(!professionalId||(uuid(professionalId)&&professionals.some(p=>p.id===professionalId)),'Profissional inválido');
+ if(professionalId){const original=db;db={query:(sql,args=[])=>{
+ const n=args.length+1;
+ const definitions=`scope_resources AS (SELECT id FROM resources WHERE staff_id=$${n}),scope_bookings AS (SELECT * FROM bookings WHERE resource_id IN (SELECT id FROM scope_resources)),scope_payments AS (SELECT * FROM payments WHERE booking_id IN (SELECT id FROM scope_bookings)),scope_customers AS (SELECT * FROM customers WHERE id IN (SELECT customer_id FROM scope_bookings)),scope_notifications AS (SELECT * FROM notifications WHERE booking_id IN (SELECT id FROM scope_bookings)),scope_blocks AS (SELECT * FROM calendar_blocks WHERE resource_id IN (SELECT id FROM scope_resources))`;
+ const map={bookings:'scope_bookings',payments:'scope_payments',customers:'scope_customers',notifications:'scope_notifications',calendar_blocks:'scope_blocks'};
+ let scoped=sql.replace(/\b(FROM|JOIN) (bookings|payments|customers|notifications|calendar_blocks)\b/g,(_,op,table)=>op+' '+map[table]);
+ scoped=/^WITH /i.test(scoped)?scoped.replace(/^WITH /i,'WITH '+definitions+', '):'WITH '+definitions+' '+scoped;
+ return original.query(scoped,[...args,professionalId]);
+ }};}
  const range=analyticsRange(query),values=[range.from,range.to];
  const bookingWindow="starts_at >= ($1::date::timestamp AT TIME ZONE 'America/Sao_Paulo') AND starts_at < (($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo')";
  const paymentWindow="approved_at >= ($1::date::timestamp AT TIME ZONE 'America/Sao_Paulo') AND approved_at < (($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo')";
@@ -28,5 +39,5 @@ export async function dashboardData(db,query={}){
  one(db,"SELECT (SELECT count(*)::int FROM bookings b JOIN booking_holds h ON h.booking_id=b.id WHERE b.state='pending' AND h.expires_at>now()) active_holds,(SELECT count(*)::int FROM calendar_blocks WHERE ends_at>now()) future_blocks,(SELECT count(*)::int FROM notifications WHERE kind IN ('owner_email','owner_whatsapp') AND state='failed') failed_alerts,(SELECT count(*)::int FROM bookings WHERE state='confirmed' AND (starts_at AT TIME ZONE 'America/Sao_Paulo')::date=(now() AT TIME ZONE 'America/Sao_Paulo')::date) today,(SELECT count(*)::int FROM bookings WHERE state='confirmed' AND starts_at >= (date_trunc('week',now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo') AND starts_at < ((date_trunc('week',now() AT TIME ZONE 'America/Sao_Paulo')+interval '7 days') AT TIME ZONE 'America/Sao_Paulo')) week"),
  all(db,"SELECT action,entity_id,created_at FROM audit_logs WHERE action IN ('payment.duplicate_requires_refund','payment.conflict') ORDER BY created_at DESC LIMIT 30")
  ]);
- return {range,summary:{...summary,today:operations.today,week:operations.week},alerts:legacyAlerts,finance,previous,trend:trend.map(({report_day,gross})=>({day:report_day,gross})),states,services,upcoming,customers,jobs,conflicts,operations,agenda_open:settings.value.agenda_open!==false};
+ return {professionals,professional_id:professionalId,range,summary:{...summary,today:operations.today,week:operations.week},alerts:legacyAlerts,finance,previous,trend:trend.map(({report_day,gross})=>({day:report_day,gross})),states,services,upcoming,customers,jobs,conflicts,operations,agenda_open:settings.value.agenda_open!==false};
 }

@@ -9,28 +9,37 @@ function form(title,fields,action,initial={}){const details=el('details'),summar
 const resourceFields=resources=>[['resource_id','Recurso de atendimento','select',resources]];
 const serviceFields=resources=>[['name','Nome'],['description','Descrição','textarea'],['price_cents','Preço em centavos','number'],['duration_minutes','Duração em minutos','number'],['buffer_minutes','Intervalo em minutos','number'],...resourceFields(resources),['care','Cuidados aprovados','textarea'],['active','Disponível para agendamento','checkbox']];
 async function mutate(action,data,confirmText){if(confirmText&&!confirm(confirmText))return;await api(action,data);status('Operação concluída.');await load();}
-async function load(query=''){if(tab==='dashboard'&&!query)query=dashboardQuery();if(tab==='agenda'&&!query)query=agendaQuery();document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current',String(b.dataset.tab===tab)));$('page-title').textContent=names[tab];$('page-description').textContent=({dashboard:'Resultados, agenda e relacionamento com suas clientes.',agenda:'Organize atendimentos e controle a disponibilidade da agenda.',clientes:'Histórico e créditos para um atendimento próximo.',servicos:'Gerencie seu catálogo, planos e recursos de atendimento.',financeiro:'Acompanhe pagamentos, taxas e situações que precisam de atenção.',configuracoes:'Regras do negócio, conexões e avisos à equipe.',franquias:'Candidatos, etapas comerciais, histórico e tarefas de acompanhamento.',monitoramento:'Visitantes ativos e conversões consentidas, sem dados simulados.'})[tab];$('content').replaceChildren(el('div','Carregando os dados do painel…',{className:'loading-state'}));$('content').setAttribute('aria-busy','true');let x;try{x=await api(tab+query);}catch(error){$('content').replaceChildren(el('div',error.message,{className:'empty-state error'}));throw error;}finally{$('content').setAttribute('aria-busy','false');}$('content').replaceChildren();$('updated-at').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'});
-if(tab==='dashboard')renderOverview(x);
+async function load(query=''){if(tab==='crm'&&!query)query=crmQuery();if(tab==='dashboard'&&!query)query=dashboardQuery();if(tab==='agenda'&&!query)query=agendaQuery();document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current',String(b.dataset.tab===tab)));$('page-title').textContent=names[tab];$('page-description').textContent=({crm:'Toda a base de clientes, histórico e lembretes por WhatsApp e e-mail.',dashboard:'Resultados, agenda e relacionamento com suas clientes.',agenda:'Organize atendimentos e controle a disponibilidade da agenda.',clientes:'Histórico e créditos para um atendimento próximo.',servicos:'Gerencie seu catálogo, planos e recursos de atendimento.',financeiro:'Acompanhe pagamentos, taxas e situações que precisam de atenção.',configuracoes:'Regras do negócio, conexões e avisos à equipe.',franquias:'Candidatos, etapas comerciais, histórico e tarefas de acompanhamento.',monitoramento:'Visitantes ativos e conversões consentidas, sem dados simulados.'})[tab];$('content').replaceChildren(el('div','Carregando os dados do painel…',{className:'loading-state'}));$('content').setAttribute('aria-busy','true');let x;try{x=await api(tab+query);}catch(error){$('content').replaceChildren(el('div',error.message,{className:'empty-state error'}));throw error;}finally{$('content').setAttribute('aria-busy','false');}$('content').replaceChildren();$('updated-at').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'});
+if(tab==='dashboard')renderOverview(x);if(tab==='crm')renderCustomerCRM(x);
+if(tab==='anamneses')renderClinicalList(x);if(tab==='usuarios')renderUsers(x);
 if(tab==='franquias')renderFranchiseWorkspace(x);
-if(tab==='monitoramento')renderVisitorMonitoring(x);
+if(tab==='monitoramento'){renderVisitorMonitoring(x);const commercial=panel('Reservas e receita por profissional');commercial.append(el('p','Registros do banco, independentes do consentimento de navegação. Reservas incluem apenas a compra principal; a receita considera a aprovação do pagamento no período.'),table(['Profissional','Reservas criadas','Confirmadas','Recebido'],(x.commercial||[]).map(r=>[r.professional_name,r.reservations,r.confirmed,money(r.revenue)])));}
 if(tab==='agenda')renderAgendaWorkspace(x);
-if(tab==='clientes'){for(const c of x.customers){const p=panel(c.name);p.append(el('p',c.email+' · '+c.phone));p.append(table(['Serviço','Data','Estado','Valor','Atendimento'],c.bookings.map(b=>[b.service,date(b.starts_at),labels[b.state],money(b.amount_cents),labels[b.attendance]])));const credits=x.credits.filter(cr=>cr.customer_id===c.id);if(credits.length)p.append(table(['Créditos restantes','Validade'],credits.map(cr=>[cr.remaining,date(cr.expires_at)])));}}
-if(tab==='servicos'){const p=panel('Serviços');p.append(el('p','Ative somente serviços, preços e orientações aprovados pela R&R. Cada recurso representa uma unidade de capacidade.'));if(role!=='viewer')p.append(form('Novo serviço',serviceFields(x.resources),'service',{buffer_minutes:0,active:false}));for(const s of x.services){const d=el('div');d.append(el('h3',s.name),el('p',money(s.price_cents)+' · '+s.duration_minutes+' minutos · '+(s.active?'Ativo':'Inativo')));if(role!=='viewer')d.append(form('Editar serviço',serviceFields(x.resources),'service',s));p.append(d);}const packs=panel('Pacotes');const packFields=[['service_id','Serviço','select',x.services],['name','Nome'],['price_cents','Preço em centavos','number'],['sessions','Quantidade de sessões','number'],['validity_days','Validade em dias','number'],['active','Disponível para compra','checkbox']];if(role!=='viewer')packs.append(form('Novo pacote',packFields,'package'));for(const pkg of x.packages){packs.append(el('h3',pkg.name),el('p',money(pkg.price_cents)+' · '+pkg.sessions+' sessões'));if(role!=='viewer')packs.append(form('Editar pacote',packFields,'package',pkg));}const resources=panel('Equipe e recursos');resources.append(table(['Recurso','Profissional','Modalidade'],x.resources.map(r=>[r.name,x.staff.find(s=>s.id===r.staff_id)?.name||'—',r.audience||'geral'])));if(role!=='viewer')resources.append(form('Adicionar profissional',[['name','Nome']],'staff'),form('Adicionar recurso',[['name','Nome'],['staff_id','Profissional (opcional)','select',[{id:'',name:'Sem vínculo'},...x.staff]],['audience','Modalidade','select',[{id:'geral',name:'Geral'},{id:'feminino',name:'Feminino'},{id:'masculino',name:'Masculino'}]]],'resource'));}
-if(tab==='financeiro'){const p=panel('Movimentações');p.append(el('a','Exportar CSV',{href:'/api/admin/export',className:'btn'}));p.append(table(['Pagamento','Reserva','Serviço','Status','Bruto','Taxas','Líquido estimado','Ação'],x.payments.map(p=>[p.id,p.booking_id,p.service_name,labels[p.status]||p.status,money(p.amount_cents),money(p.fee_cents),p.status==='approved'?money(p.amount_cents-p.fee_cents):'—',role==='owner'&&p.status==='approved'?button('Reembolsar',()=>p.id.startsWith('offline:')?mutate('offline_refund',{id:p.booking_id,returned:true},'Confirma que o dinheiro já foi devolvido presencialmente?'):mutate('payment_refund',{payment_id:p.id},'Solicitar reembolso deste pagamento no Mercado Pago?'),true):''])));}
-if(tab==='configuracoes'){const p=panel('Conexões');p.append(table(['Integração','Estado'],[['Mercado Pago',x.connections.payment?'Configurado · '+x.connections.payment_mode:'Não configurado'],[x.connections.calendar_mode==='internal'?'Agenda interna':'Google Calendar',x.connections.calendar_mode==='internal'?'Ativa · acompanhamento pelo painel':x.connections.calendar?'Credenciais configuradas; conferir fila de sincronização':'Não conectado'],['WhatsApp da equipe',x.connections.whatsapp?'Credenciais configuradas; conferir fila de envio':'Não configurado'],['E-mail',x.connections.email?'Credenciais configuradas; conferir fila de envio':'Não configurado']]));if(role==='owner')p.append(button('Verificar conta do Mercado Pago',async()=>{const account=await api('payment-connection');status('Conta do Mercado Pago verificada: '+account.account_name+' · ID '+account.collector_id+' · '+account.site_id+'. Nenhuma cobrança realizada.');}));if(role==='owner'){p.append(button('Verificar conexões dos avisos',async()=>{const check=await api('notification-connection');status('WhatsApp: '+check.whatsapp.state+' · SMTP validado: '+(check.smtp_verified?'sim':'não'));}));p.append(button('Enviar teste por WhatsApp',()=>mutate('test-notifications',{kind:'owner_whatsapp'},'Enviar mensagem de teste ao WhatsApp configurado para receber os avisos?')));p.append(button('Enviar teste por e-mail',()=>mutate('test-notifications',{kind:'owner_email'},'Enviar e-mail de teste ao destinatário configurado para receber os avisos?')));}p.append(el('p','Credenciais são configuradas nas variáveis privadas do servidor. Nunca cole tokens em páginas públicas.'));const deliveries=panel('Avisos de confirmação à equipe');deliveries.append(table(['Canal','Destinatário','Estado','Tentativas','Erro'],(x.alerts||[]).map(n=>[n.kind==='owner_email'?'E-mail':'WhatsApp',n.recipient,labels[n.state]||n.state,n.attempts,n.last_error||''])));if(role==='owner')deliveries.append(button('Repetir avisos com falha',()=>mutate('retry_notifications',{},'Repetir os avisos que falharam após conferir a configuração?')));const policies=panel('Agendamento');policies.append(el('p','Reservas temporárias: 10 minutos. Opções de horário a cada 2 horas. Horários de São Paulo.'));if(role==='owner')policies.append(form('Editar políticas e lembretes',[['policy','Política comercial aprovada','textarea'],['privacy_contact','Contato de privacidade'],['reminders_enabled','Habilitar lembretes opcionais para a cliente','checkbox'],['owner_email','E-mail que recebe os avisos','email'],['owner_whatsapp','WhatsApp que recebe os avisos (país e DDD)'],['notify_owner_email','Enviar confirmação à equipe por e-mail','checkbox'],['notify_owner_whatsapp','Enviar confirmação à equipe por WhatsApp','checkbox']],'settings',{...x.settings,hold_minutes:10,slot_interval_minutes:120}));const hours=panel('Funcionamento');hours.append(table(['Recurso','Dia (0 = domingo)','Abre','Fecha','Ação'],x.hours.map(h=>[x.resources.find(r=>r.id===h.resource_id)?.name,h.weekday,h.opens,h.closes,role==='viewer'?'':button('Remover',()=>mutate('delete_hours',{id:h.id},'Remover este horário comercial?'))])));if(role!=='viewer')hours.append(form('Adicionar horário de funcionamento',[...resourceFields(x.resources),['weekday','Dia da semana (0–6)','number'],['opens','Abre','time'],['closes','Fecha','time']],'hours'));panel('Auditoria recente').append(table(['Ação','Registro','Data'],x.audit.map(a=>[a.action,a.entity_id,date(a.created_at)])));}
+if(tab==='clientes'){for(const c of x.customers){const p=panel(c.name);p.append(el('p',c.email+' · '+c.phone));for(const d of c.clinical_missing||[])p.append(el('p','Ficha ausente ou vencida · '+date(d),{className:'error'}));for(const f of c.clinical_alerts||[]){
+ const notice=el('div',null,{className:'clinical-notice '+(f.review==='review'?'clinical-flagged':'')});
+ notice.append(el('strong',f.review==='review'?'Atenção · Respostas de saúde sinalizadas':clinicalReviewLabel(f)));
+ if(f.review==='review')notice.append(el('p',clinicalReviewLabel(f)));
+ notice.append(button('Ver ficha · '+date(f.accepted_at),()=>showClinical(f)));
+ p.append(notice);
+}p.append(table(['Serviço','Profissional','Data','Estado','Valor','Atendimento'],c.bookings.map(b=>[b.service,b.professional_name||'Não informado — agenda anterior',date(b.starts_at),labels[b.state],money(b.amount_cents),labels[b.attendance]])));const credits=x.credits.filter(cr=>cr.customer_id===c.id);if(credits.length)p.append(table(['Créditos restantes','Validade'],credits.map(cr=>[cr.remaining,date(cr.expires_at)])));}}
+if(tab==='servicos'){if(role==='owner'){const setup=panel('Catálogo aprovado — novembro de 2026');setup.append(el('p','Sessão R$ 229,90; Tradicional 3 sessões R$ 629,90; Tradicional 5 sessões R$ 999,90; Express 5 sessões R$ 1.049,90. Express 3 sessões R$ 719,90. A preparação cria registros inativos, sem alterar reservas existentes.'),button('Preparar catálogo das duas agendas',()=>mutate('catalog-prepare',{})),form('Ativar catálogo após conferência', [['reviewed','Conferi preços, horários, duração, validade, cuidados e capacidade para os dois profissionais','checkbox'],['backup_verified','Backup de produção verificado e restaurável','checkbox']],'catalog-activate'));}const p=panel('Serviços');p.append(el('p','Ative somente serviços, preços e orientações aprovados pela R&R. Cada recurso representa uma unidade de capacidade.'));if(!['viewer','professional'].includes(role))p.append(form('Novo serviço',serviceFields(x.resources),'service',{buffer_minutes:0,active:false}));for(const s of x.services){const d=el('div');d.append(el('h3',s.name),el('p',money(s.price_cents)+' · '+s.duration_minutes+' minutos · '+(s.active?'Ativo':'Inativo')));if(!['viewer','professional'].includes(role))d.append(form('Editar serviço',serviceFields(x.resources),'service',s));p.append(d);}const packs=panel('Pacotes');const packFields=[['service_id','Serviço','select',x.services],['name','Nome'],['price_cents','Preço em centavos','number'],['sessions','Quantidade de sessões','number'],['validity_days','Validade em dias','number'],['active','Disponível para compra','checkbox']];if(!['viewer','professional'].includes(role))packs.append(form('Novo pacote',packFields,'package'));for(const pkg of x.packages){packs.append(el('h3',pkg.name),el('p',money(pkg.price_cents)+' · '+pkg.sessions+' sessões'));if(!['viewer','professional'].includes(role))packs.append(form('Editar pacote',packFields,'package',pkg));}const resources=panel('Equipe e recursos');resources.append(table(['Recurso','Profissional','Modalidade'],x.resources.map(r=>[r.name,x.staff.find(s=>s.id===r.staff_id)?.name||'—',r.audience||'geral'])));if(!['viewer','professional'].includes(role))resources.append(form('Adicionar profissional',[['name','Nome']],'staff'),form('Adicionar recurso',[['name','Nome'],['staff_id','Profissional (opcional)','select',[{id:'',name:'Sem vínculo'},...x.staff]],['audience','Modalidade','select',[{id:'geral',name:'Geral'},{id:'feminino',name:'Feminino'},{id:'masculino',name:'Masculino'}]]],'resource'));}
+if(tab==='financeiro'){const p=panel('Movimentações');p.append(el('a','Exportar CSV',{href:'/api/admin/export',className:'btn'}));p.append(table(['Pagamento','Reserva','Serviço','Profissional','Status','Bruto','Taxas','Líquido estimado','Ação'],x.payments.map(p=>[p.id,p.booking_id,p.service_name,p.professional_name||'Não informado — agenda anterior',labels[p.status]||p.status,money(p.amount_cents),money(p.fee_cents),p.status==='approved'?money(p.amount_cents-p.fee_cents):'—',role==='owner'&&p.status==='approved'?button('Reembolsar',()=>p.id.startsWith('offline:')?mutate('offline_refund',{id:p.booking_id,returned:true},'Confirma que o dinheiro já foi devolvido presencialmente?'):mutate('payment_refund',{payment_id:p.id},'Solicitar reembolso deste pagamento no Mercado Pago?'),true):''])));}
+if(tab==='configuracoes'){const p=panel('Conexões');p.append(table(['Integração','Estado'],[['Mercado Pago',x.connections.payment?'Configurado · '+x.connections.payment_mode:'Não configurado'],[x.connections.calendar_mode==='internal'?'Agenda interna':'Google Calendar',x.connections.calendar_mode==='internal'?'Ativa · acompanhamento pelo painel':x.connections.calendar?'Credenciais configuradas; conferir fila de sincronização':'Não conectado'],['WhatsApp da equipe',x.connections.whatsapp?'Credenciais configuradas; conferir fila de envio':'Não configurado'],['E-mail',x.connections.email?'Credenciais configuradas; conferir fila de envio':'Não configurado']]));if(role==='owner')p.append(button('Verificar conta do Mercado Pago',async()=>{const account=await api('payment-connection');status('Conta do Mercado Pago verificada: '+account.account_name+' · ID '+account.collector_id+' · '+account.site_id+'. Nenhuma cobrança realizada.');}));if(role==='owner'){p.append(button('Verificar conexões dos avisos',async()=>{const check=await api('notification-connection');status('WhatsApp: '+check.whatsapp.state+' · SMTP validado: '+(check.smtp_verified?'sim':'não'));}));p.append(button('Enviar teste por WhatsApp',()=>mutate('test-notifications',{kind:'owner_whatsapp'},'Enviar mensagem de teste ao WhatsApp configurado para receber os avisos?')));p.append(button('Enviar teste por e-mail',()=>mutate('test-notifications',{kind:'owner_email'},'Enviar e-mail de teste ao destinatário configurado para receber os avisos?')));}p.append(el('p','Credenciais são configuradas nas variáveis privadas do servidor. Nunca cole tokens em páginas públicas.'));const deliveries=panel('Avisos de confirmação à equipe');deliveries.append(table(['Canal','Destinatário','Estado','Tentativas','Erro'],(x.alerts||[]).map(n=>[n.kind==='owner_email'?'E-mail':'WhatsApp',n.recipient,labels[n.state]||n.state,n.attempts,n.last_error||''])));if(role==='owner')deliveries.append(button('Repetir avisos com falha',()=>mutate('retry_notifications',{},'Repetir os avisos que falharam após conferir a configuração?')));const policies=panel('Agendamento');policies.append(el('p','Reservas temporárias: 10 minutos. Opções de horário a cada 2 horas. Horários de São Paulo.'));if(role==='owner')policies.append(form('Editar políticas e lembretes',[['policy','Política comercial aprovada','textarea'],['privacy_contact','Contato de privacidade'],['reminders_enabled','Habilitar lembretes opcionais para a cliente','checkbox'],['owner_email','E-mail que recebe os avisos','email'],['owner_whatsapp','WhatsApp que recebe os avisos (país e DDD)'],['notify_owner_email','Enviar confirmação à equipe por e-mail','checkbox'],['notify_owner_whatsapp','Enviar confirmação à equipe por WhatsApp','checkbox']],'settings',{...x.settings,hold_minutes:10,slot_interval_minutes:120}));const hours=panel('Funcionamento');hours.append(table(['Recurso','Dia (0 = domingo)','Abre','Fecha','Ação'],x.hours.map(h=>[x.resources.find(r=>r.id===h.resource_id)?.name,h.weekday,h.opens,h.closes,role==='viewer'?'':button('Remover',()=>mutate('delete_hours',{id:h.id},'Remover este horário comercial?'))])));if(!['viewer','professional'].includes(role))hours.append(form('Adicionar horário de funcionamento',[...resourceFields(x.resources),['weekday','Dia da semana (0–6)','number'],['opens','Abre','time'],['closes','Fecha','time']],'hours'));panel('Auditoria recente').append(table(['Ação','Registro','Data'],x.audit.map(a=>[a.action,a.entity_id,date(a.created_at)])));}
 }
-const names={dashboard:'Visão geral',agenda:'Calendário',clientes:'Clientes',servicos:'Serviços',financeiro:'Financeiro',monitoramento:'Monitoramento',franquias:'Franquias',configuracoes:'Configurações'};
-async function enter(){const u=await api('session');csrf=u.csrf;role=u.role;$('account').textContent=u.email;$('login').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;$('admin-nav').replaceChildren();for(const [id,label]of Object.entries(names)){if(['franquias','monitoramento'].includes(id)&&!['owner','manager'].includes(role))continue;const b=button(label,async()=>{tab=id;await load();});b.dataset.tab=id;b.prepend(adminIcon(id));$('admin-nav').append(b);}await load();}
+const names={usuarios:'Usuários e permissões',anamneses:'Anamneses',dashboard:'Visão geral',agenda:'Calendário',clientes:'Clientes',crm:'CRM de Clientes',servicos:'Serviços',financeiro:'Financeiro',monitoramento:'Monitoramento',franquias:'Franquias',configuracoes:'Configurações'};
+async function enter(){const u=await api('session');csrf=u.csrf;role=u.role;if(role==='professional')tab='agenda';$('account').textContent=u.email;$('login').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;$('admin-nav').replaceChildren();for(const [id,label]of Object.entries(names)){if(id==='usuarios'&&role!=='owner')continue;if(role==='professional'&&!['agenda','clientes','anamneses'].includes(id))continue;if(['crm','franquias','monitoramento'].includes(id)&&!['owner','manager'].includes(role))continue;const b=button(label,async()=>{tab=id;await load();});b.dataset.tab=id;b.prepend(adminIcon(id));$('admin-nav').append(b);}await load();}
 $('login').onsubmit=async e=>{e.preventDefault();try{await api('login',Object.fromEntries(new FormData(e.target)));await enter();status('');}catch(e){status(e.message,true);}};$('logout').onclick=async()=>{await api('logout',{});location.reload();};enter().catch(e=>{if(!$('workspace').hidden)status(e.message,true);});
 
 function renderFranchiseWorkspace(data){
- const stages={novo:'Novo interesse',primeiro_contato:'Primeiro contato',em_analise:'Em análise',reuniao:'Reunião agendada',proposta:'Proposta',negociacao:'Negociação',aprovado:'Aprovado',descartado:'Descartado'};
+ const stages={novo:'Novo interesse',primeiro_contato:'Primeiro contato',em_analise:'Em análise',reuniao:'Reunião agendada',proposta:'Proposta',negociacao:'Negociação',aprovado:'Concluído',descartado:'Descartado'};
  const p=panel('Funil de interessados');p.append(el('p','Informações restritas à gestão comercial. Cadastros de interesse não constituem oferta formal de franquia.'));
  const filter=el('div',null,{className:'form-grid'}),uf=el('input',null,{placeholder:'Estado (UF)',maxLength:2}),city=el('input',null,{placeholder:'Cidade',maxLength:120}),stage=el('select');stage.append(el('option','Todas as etapas',{value:''}));for(const [id,name] of Object.entries(stages))stage.append(el('option',name,{value:id}));filter.append(uf,city,stage,button('Filtrar',()=>load('?state='+encodeURIComponent(uf.value.toUpperCase())+'&city='+encodeURIComponent(city.value)+'&stage='+encodeURIComponent(stage.value))));p.append(filter);
+ if(role==='owner')p.append(button('Exportar candidatos CSV',async()=>{const r=await fetch('/api/admin/franchise-export');if(!r.ok)throw Error((await r.json()).error);const url=URL.createObjectURL(await r.blob()),a=el('a',null,{href:url,download:'interessados-rr.csv'});a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}));
  p.append(table(['Etapa','Cadastros'],Object.entries(stages).map(([id,name])=>[name,data.leads.filter(l=>l.stage===id).length])));
  for(const lead of data.leads){const item=panel(lead.full_name+' · '+(stages[lead.stage]||lead.stage));
  item.append(el('p',lead.city+'/'+lead.state+' · '+lead.email+' · '+lead.whatsapp));
  item.append(el('p','Perfil: '+lead.participation+' · investimento pretendido: '+lead.investment_range+' · início: '+lead.start_window));
+ if(lead.availability)item.append(el('p','Disponibilidade para conversar: '+lead.availability));
  if(lead.experience)item.append(el('p','Experiência: '+lead.experience));
  if(lead.comments)item.append(el('p','Comentários: '+lead.comments));
  const controls=el('div',null,{className:'form-grid'}),select=el('select');for(const [id,name] of Object.entries(stages))select.append(el('option',name,{value:id}));select.value=lead.stage;
@@ -38,7 +47,7 @@ function renderFranchiseWorkspace(data){
  const note=el('textarea',null,{placeholder:'Registrar observação comercial',maxLength:2000,rows:2});
  controls.append(note,button('Registrar contato',()=>mutate('franquias',{id:lead.id,action:'note',note:note.value})));
  const task=el('input',null,{placeholder:'Nova tarefa comercial',maxLength:180});
- controls.append(task,button('Criar tarefa',()=>mutate('franquias',{id:lead.id,action:'task',title:task.value})));item.append(controls);
+ const due=el('input',null,{type:'datetime-local'});due.setAttribute('aria-label','Próximo contato');const assigned=el('select');assigned.setAttribute('aria-label','Responsável');assigned.append(el('option','Sem responsável',{value:''}));for(const u of data.users||[])assigned.append(el('option',u.email,{value:u.id}));assigned.value=lead.assigned_to||'';controls.append(assigned,button('Atribuir responsável',()=>mutate('franquias',{id:lead.id,action:'assign',assigned_to:assigned.value})),task,due,button('Criar tarefa',()=>mutate('franquias',{id:lead.id,action:'task',title:task.value,due_at:due.value?due.value+':00-03:00':null})));item.append(controls);
  const history=data.history.filter(h=>h.lead_id===lead.id);item.append(table(['Histórico','Data'],history.map(h=>[h.action+': '+h.details,date(h.created_at)])));
  const tasks=data.tasks.filter(t=>t.lead_id===lead.id);item.append(table(['Tarefa','Prazo','Concluída','Ação'],tasks.map(t=>[t.title,date(t.due_at),t.completed_at?'Sim':'Não',t.completed_at?'—':button('Concluir',()=>mutate('franquias',{id:lead.id,action:'complete_task',task_id:t.id}))])));
  }
@@ -61,3 +70,120 @@ function renderVisitorMonitoring(x){
  panel('Campanhas UTM').append(table(['UTM source','Visitantes'],x.utm.map(v=>[v.utm_source,v.visitors])));
 }
 setInterval(()=>{if(tab==='monitoramento'&&document.visibilityState==='visible'&&!$('workspace').hidden)load().catch(()=>{});},30000);
+
+function clinicalReviewLabel(form){
+ if(form.review==='unavailable')return 'Triagem indisponível · conferência pendente';
+ const state=form.reviewed?'Conferência registrada':'Conferência obrigatória';
+ return form.review==='review'?state+' · Respostas sinalizadas':state;
+}
+function clinicalReviewBadge(form){
+ return el('span',clinicalReviewLabel(form),{className:'clinical-badge '+(form.review==='review'?'clinical-flagged':'')});
+}
+async function showClinical(form){
+ const record=form.demo_record||await api('anamneses?id='+encodeURIComponent(form.id));
+ const p=record.payload,dialog=openAdminDialog('Ficha de '+p.name);
+ dialog.append(el('p','Assinada em '+date(record.accepted_at)+' · Revisão '+record.revision));
+ if(record.review.length){
+  const notice=el('section',null,{className:'clinical-notice clinical-flagged'});
+  const items=el('ul');
+  for(const reason of record.review)items.append(el('li',reason));
+  notice.append(el('h3','Atenção · Revisar antes do atendimento'),items);
+  dialog.append(notice);
+ }
+ dialog.append(table(['Campo','Resposta'],[
+  ['Nome',p.name],['Sexo',p.sex],['Nascimento',p.birth_date],['Telefone',p.phone],['E-mail',p.email],
+  ['Profissão',p.profession],['Fototipo',p.phototype],['Local',p.location],['Vestimenta',p.clothing],
+  ['Data da avaliação',p.evaluation_date]
+ ]));
+ const responses=table(['Pergunta','Resposta','Detalhes'],record.answers.map(answer=>[answer.label,answer.value,answer.detail]));
+ const flagged=new Set(record.review);
+ for(const [index,row] of Array.from(responses.querySelectorAll('tbody tr')).entries()){
+  const label=record.answers[index].label;
+  if(flagged.has(label)||flagged.has('Resposta incompleta ou inválida — '+label)){
+   row.classList.add('clinical-answer-flagged');
+   row.cells[0].append(el('span','Sinalizada',{className:'clinical-badge clinical-flagged'}));
+  }
+ }
+ dialog.append(responses);
+ dialog.append(el('p',p.term),el('p',p.clothingNotice),el('p',p.typed_signature?'Assinatura: '+p.typed_signature:'Assinatura manuscrita disponível no PDF.'));
+ if(!form.demo_record)dialog.append(clinicalPdfButton(form.id));
+ if(!form.demo_record&&role!=='viewer')dialog.append(button('Registrar conferência da ficha',async()=>{
+  if(!confirm('Você conferiu todas as respostas e avaliou os pontos sinalizados antes do atendimento?'))return;
+  await api('anamneses',{id:form.id,reviewed:true});
+  dialog.close();
+  await load();
+  status('Conferência registrada.');
+ }));
+}
+function clinicalPdfButton(id){
+ return button('Baixar PDF',async()=>{
+  const r=await fetch('/api/admin/anamneses?id='+encodeURIComponent(id)+'&pdf=1');
+  if(!r.ok)throw Error((await r.json()).error);
+  const url=URL.createObjectURL(await r.blob()),a=el('a',null,{href:url,download:'anamnese.pdf'});
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+ });
+}
+const demoAnamneses=new Map();
+async function createDemoAnamneses(){
+ const {questions}=await import('/anamnese-schema.js');
+ for(const hasAllergy of [true,false]){
+  const id=hasAllergy?'demo-with-allergy':'demo-without-allergy';
+  const name=hasAllergy?'TESTE — Cliente com alergia':'TESTE — Cliente sem alergia';
+  const accepted_at=new Date().toISOString();
+  const answers=questions.map(([key,label,,options])=>({
+   label,value:key==='allergies'&&hasAllergy?'SIM':key==='depilation'?'NÃO':options?.[0]||'NÃO',
+   detail:key==='allergies'&&hasAllergy?'Relato fictício para demonstração.':undefined
+  }));
+  demoAnamneses.set(id,{
+   id,name,accepted_at,revision:1,review:hasAllergy?'review':'required',
+   demo_record:{accepted_at,revision:1,answers,review:hasAllergy?['Alergias na pele?']:[],
+    payload:{name,term:'Ficha fictícia para demonstração.',typed_signature:name}}
+  });
+ }
+ await load();
+}
+function renderDemoAnamneses(){
+ const demo=panel('Agendas de teste');
+ demo.append(el('p','Simulações nesta aba do navegador. Nenhum horário é reservado.'));
+ demo.append(button('Criar dois testes de anamnese',createDemoAnamneses));
+ if(!demoAnamneses.size)return;
+ demo.append(table(['Cliente fictícia','Triagem','Ficha','Ação'],[...demoAnamneses.values()].map(form=>[
+  form.name,clinicalReviewBadge(form),button('Ver ficha preenchida',()=>showClinical(form)),
+  button('Excluir agenda de teste',async()=>{demoAnamneses.delete(form.id);await load();})
+ ])));
+}
+function renderClinicalList(x){
+ const p=panel('Fichas de anamnese');
+ p.append(el('p','As respostas sinalizadas precisam de revisão antes do atendimento.'));
+ p.append(table(['Cliente','Profissional','Assinatura','Revisão','Triagem','Documento'],x.forms.map(f=>[
+  f.name,f.professional_name,date(f.accepted_at),f.revision,clinicalReviewBadge(f),
+  button('Ver ficha preenchida',()=>showClinical(f))
+ ])));
+ if(role==='owner')renderDemoAnamneses();
+}
+function renderUsers(x){
+ const p=panel('Usuários e permissões');
+ const profiles=[
+  {id:'viewer',name:'Consulta administrativa'},
+  {id:'manager',name:'Gestor'},
+  {id:'professional',name:'Profissional — somente atendimentos vinculados'},
+  {id:'owner',name:'Proprietário — gestão completa'}
+ ];
+ const accessFields=[
+  ['role','Perfil','select',profiles],
+  ['staff_id','Profissional vinculado','select',[{id:'',name:'Sem acesso clínico adicional'},...x.staff]]
+ ];
+ p.append(el('p','Cada alteração de acesso é auditada. O vínculo profissional permite consultar dados clínicos da agenda vinculada.'));
+ p.append(form('Criar usuário',[['email','E-mail da conta','email'],...accessFields],'usuarios',{action:'create',role:'viewer'}));
+ const passwordHelp=el('p','Após o cadastro, a pessoa deve definir sua senha pela opção ');
+ passwordHelp.append(el('a','Esqueci minha senha',{href:'/admin/recuperar-senha'}),document.createTextNode(', usando o e-mail cadastrado.'));
+ p.append(passwordHelp);
+ for(const u of x.users){
+  const block=el('section');
+  block.append(el('h3',u.email),form('Editar permissões',[
+   ...accessFields,['active','Conta ativa','checkbox']
+  ],'usuarios',{id:u.id,role:u.role,active:u.active,staff_id:u.staff_ids?.[0]||''}));
+  p.append(block);
+ }
+}
