@@ -6,12 +6,55 @@ function renderCustomerCRM(x){
  const filters=el('form',null,{className:'period-toolbar'}),search=el('input',null,{type:'search',placeholder:'Buscar nome, e-mail ou WhatsApp',value:crmSearch}),stage=el('select');search.setAttribute('aria-label','Buscar cliente');stage.setAttribute('aria-label','Filtrar etapa');stage.append(el('option','Todas as etapas',{value:''}));for(const [key,label]of Object.entries(x.stages))stage.append(el('option',label,{value:key}));stage.value=crmStage;filters.append(search,stage,el('button','Buscar',{type:'submit'}));filters.onsubmit=async e=>{e.preventDefault();crmSearch=search.value;crmStage=stage.value;crmPage=0;await load();};top.append(filters);
  top.append(form('Cadastrar cliente',[['name','Nome completo'],['email','E-mail','email'],['phone','WhatsApp com DDD']],'crm',{action:'create'}));
  const board=el('div',null,{className:'crm-board'});board.setAttribute('aria-label','Kanban de clientes');
- for(const [key,label]of Object.entries(x.stages)){if(crmStage&&crmStage!==key)continue;const list=x.contacts.filter(c=>c.stage===key),col=el('section',null,{className:'crm-column'});col.append(el('h2',label+' · '+list.length));for(const c of list){const card=el('article',null,{className:'crm-card'});card.append(el('h3',c.name),el('p',c.email),el('p',c.phone),el('p',c.bookings_count+' agendamento(s) · recebido '+money(c.paid_cents)),el('p','Último atendimento: '+(date(c.last_visit_at)||'Não registrado')),el('p',c.paused?'Lembretes pausados':'Próximo ciclo: '+date(c.next_retouch_at)),el('small','E-mail: '+(c.email_enabled?'ativo':'pausado')+' · WhatsApp: '+(c.whatsapp_enabled?'ativo':'pausado')),button('Abrir ficha',()=>openCRMContact(c.id)));col.append(card);}if(!list.length)col.append(el('p','Nenhum cliente nesta etapa nesta página.',{className:'muted'}));board.append(col);} $('content').append(board);
+ for(const [key,label] of Object.entries(x.stages)){
+  if(crmStage&&crmStage!==key)continue;
+  const contacts=x.contacts.filter(contact=>contact.stage===key);
+  const column=el('section',null,{className:'crm-column'});
+  column.dataset.stage=key;
+  const header=el('header',null,{className:'crm-column-heading'});
+  header.append(el('h2',label),el('span',String(contacts.length),{className:'crm-count'}));
+  column.append(header);
+  for(const contact of contacts)column.append(crmContactCard(contact));
+  if(!contacts.length)column.append(el('p','Nenhum cliente nesta etapa.',{className:'crm-empty'}));
+  board.append(column);
+ }
+ $('content').append(board);
+
  const pager=panel();const prev=button('Página anterior',async()=>{crmPage--;await load();}),next=button('Próxima página',async()=>{crmPage++;await load();});prev.disabled=x.page===0;next.disabled=!x.more;pager.append(prev,el('span',' Página '+(x.page+1)+' '),next);
  const automation=panel('Automação de relacionamento');automation.append(el('p','Confirmação e agradecimento após aprovação do pagamento, pelos dois canais. Lembretes a cada 15 dias; o ciclo reinicia após o atendimento marcado como realizado. Quem já tem horário futuro não recebe convite para retoque. Clientes sem atendimento registrado recebem um convite para agendar.'));
  automation.append(el('p','Confirmações: '+(x.settings.confirmations?'ativas':'pausadas')+' · Lembretes: '+(x.settings.retouch?'ativos':'pausados')));
  if(role==='owner'){automation.append(form('Configurar automações',[['confirmations','Confirmação e agradecimento por WhatsApp e e-mail','checkbox'],['retouch','Lembretes a cada 15 dias por WhatsApp e e-mail','checkbox']],'crm',{action:'settings',...x.settings}));automation.append(button('Verificar canais',async()=>{const r=await api('crm-connections');status('WhatsApp: '+(r.whatsapp.error||r.whatsapp.state)+' · E-mail: '+(r.email.error||(r.email.verified?'SMTP validado':'Não validado')));}));}
  automation.append(table(['Canal','Situação','Mensagens'],x.delivery.map(d=>[d.channel==='email'?'E-mail':'WhatsApp',crmMessageStates[d.state],d.total])),el('p','“Aceito pelo provedor” não confirma leitura. Falhas ficam registradas no card. Envios com resultado incerto não são repetidos automaticamente.'));
+}
+function crmContactCard(contact){
+ const card=el('article',null,{className:'crm-card'});
+ const initials=contact.name.trim().split(/\s+/).slice(0,2).map(word=>word[0]).join('').toUpperCase();
+ const identity=el('div',null,{className:'crm-identity'});
+ const avatar=el('span',initials,{className:'crm-initials'});
+ avatar.setAttribute('aria-hidden','true');
+ identity.append(avatar,el('h3',contact.name));
+ card.append(identity);
+ const summary=el('dl',null,{className:'crm-metrics'});
+ for(const [label,value] of [['Agendamentos',String(contact.bookings_count)],['Recebido',money(contact.paid_cents)]]){
+  const metric=el('div');metric.append(el('dt',label),el('dd',value));summary.append(metric);
+ }
+ card.append(summary);
+ const actions=el('div',null,{className:'crm-actions'});
+ actions.append(button('Abrir ficha',()=>openCRMContact(contact.id),false));
+ const details=el('details',null,{className:'crm-details'});
+ details.append(el('summary','Ver detalhes'));
+ const info=el('dl');
+ for(const [label,value] of [
+  ['E-mail',contact.email],['WhatsApp',contact.phone],
+  ['Último atendimento',date(contact.last_visit_at)||'Não registrado'],
+  ['Próximo ciclo',date(contact.next_retouch_at)||'Sem previsão'],
+  ['Lembretes',contact.paused?'Pausados':`E-mail ${contact.email_enabled?'ativo':'pausado'} · WhatsApp ${contact.whatsapp_enabled?'ativo':'pausado'}`]
+ ]){
+  const row=el('div');row.append(el('dt',label),el('dd',value||'Não informado'));info.append(row);
+ }
+ details.append(info);
+ card.append(actions,details);
+ return card;
 }
 async function openCRMContact(id,page=0){
  const x=await api('crm?id='+encodeURIComponent(id)+'&messages_page='+page),c=x.contact,d=openAdminDialog(c.name);
