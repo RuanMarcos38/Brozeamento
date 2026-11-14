@@ -1,3 +1,4 @@
+import {requireClinicalReview} from './anamnesis.js';
 import {dashboardData} from './analytics.js';
 import { one,all,audit } from './db.js';
 import { requireValue,uuid,HttpError } from './security.js';
@@ -11,7 +12,7 @@ export async function adminData(db,tab,query={}){
  throw new HttpError(404,'Área não encontrada');
 }
 const integer=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;
-export async function adminWrite(db,action,x,user,booking){
+export async function adminWrite(db,action,x,user,booking,env=process.env){
  requireValue(user.role!=='viewer','Acesso somente para leitura',403);
  if(action==='service'){requireValue(typeof x.name==='string'&&x.name.length>=2&&x.name.length<=120&&uuid(x.resource_id)&&integer(x.price_cents,1,10000000)&&integer(x.duration_minutes,1,480)&&integer(x.buffer_minutes,0,120),'Confira nome, recurso, preço e duração');const values=[x.name,x.description||'',x.price_cents,x.duration_minutes,x.buffer_minutes,x.active===true,x.care||'',x.resource_id];if(x.id){requireValue(uuid(x.id),'Serviço inválido');await db.query('UPDATE services SET name=$1,description=$2,price_cents=$3,duration_minutes=$4,buffer_minutes=$5,active=$6,care=$7,resource_id=$8 WHERE id=$9',[...values,x.id]);}else await db.query('INSERT INTO services(name,description,price_cents,duration_minutes,buffer_minutes,active,care,resource_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',values);}
  else if(action==='resource'){requireValue(x.name?.length>=2&&x.name.length<=120,'Informe o nome');requireValue(['geral','feminino','masculino'].includes(x.audience||'geral'),'Modalidade inválida');await db.query('INSERT INTO resources(name,staff_id,audience) VALUES($1,$2,$3)',[x.name,x.staff_id||null,x.audience||'geral']);}
@@ -37,7 +38,12 @@ export async function adminWrite(db,action,x,user,booking){
  else if(action==='refund'){requireValue(user.role==='owner','Somente o proprietário pode reembolsar',403);requireValue(uuid(x.id),'Reserva inválida');await booking.refund(x.id,user.id);}
  else if(action==='payment_refund'){requireValue(user.role==='owner','Somente o proprietário pode reembolsar',403);const payment=await one(db,"SELECT * FROM payments WHERE id=$1 AND status='approved'",[String(x.payment_id)]);requireValue(payment,'Pagamento não encontrado',404);requireValue(!payment.id.startsWith('offline:'),'Registre a devolução presencial na operação apropriada',409);const duplicate=await one(db,"SELECT id FROM payments WHERE booking_id=$1 AND status='approved' AND id<>$2",[payment.booking_id,payment.id]);if(!duplicate)await booking.refund(payment.booking_id,user.id);else{await booking.gateway.refund(payment.id,'refund:'+payment.id);await booking.applyPayment(await booking.gateway.payment(payment.id));}}
  else if(action==='offline_refund'){requireValue(user.role==='owner'&&uuid(x.id)&&x.returned===true,'Confirme a devolução presencial',403);const p=await one(db,"SELECT * FROM payments WHERE booking_id=$1 AND status='approved' AND id LIKE 'offline:%'",[x.id]);requireValue(p,'Pagamento presencial não encontrado',404);await db.transaction(async c=>{await c.query("UPDATE payments SET status='refunded' WHERE id=$1",[p.id]);await c.query("UPDATE bookings SET state='refunded',updated_at=now() WHERE id=$1",[x.id]);await c.query("INSERT INTO notifications(booking_id,kind,dedupe_key) VALUES($1,'calendar',$2) ON CONFLICT DO NOTHING",[x.id,'offline_refund:'+x.id]);});}
- else if(action==='attendance'){requireValue(uuid(x.id)&&['scheduled','completed','no_show'].includes(x.attendance),'Atendimento inválido');await db.query('UPDATE bookings SET attendance=$2 WHERE id=$1',[x.id,x.attendance]);}
+ else if(action==='attendance'){requireValue(uuid(x.id)&&['scheduled','completed','no_show'].includes(x.attendance),'Atendimento inválido');await db.transaction(async tx=>{
+  const current=await one(tx,'SELECT b.id,s.anamnesis_required FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.id=$1 FOR UPDATE OF b',[x.id]);
+  requireValue(current,'Reserva não encontrada',404);
+  if(x.attendance==='completed'&&current.anamnesis_required)await requireClinicalReview(tx,env,x.id);
+  await tx.query('UPDATE bookings SET attendance=$2 WHERE id=$1',[x.id,x.attendance]);
+ });}
  else if(action==='walkin'){const bearer=crypto.randomUUID().replaceAll('-','')+crypto.randomUUID().replaceAll('-','');requireValue(x.paid===true,'Confirme o recebimento presencial');const b=await booking.create({...x,token:bearer,privacy:true},{offline:true});await audit(db,user.id,'booking.offline_payment',b.id);return {id:b.id,token:bearer,state:b.state};}
  else throw new HttpError(404,'Operação não encontrada');
  await audit(db,user.id,'admin.'+action,x.id||null);return {ok:true};
