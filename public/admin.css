@@ -33,3 +33,15 @@
 .crm-details dl{display:grid;gap:8px;margin:8px 0 0;padding-top:8px;border-top:1px solid #e4e1e9}
 .crm-empty{margin:0;padding:12px 8px;border:1px dashed #d3cddd;border-radius:8px;color:#625b6a;font-size:12px;text-align:center}
 .crm-board+.panel{display:flex;align-items:center;justify-content:center;gap:12px}@media(max-width:700px){.crm-board{grid-auto-columns:minmax(238px,80vw)}.period-toolbar input[type=search]{width:100%}}
+
+.clinical-notice,.clinical-badge{color:#564518;background:#fff5dd;border:1px solid #ead7a5}
+.clinical-notice{padding:12px 14px;border-radius:10px;margin:12px 0}
+.clinical-notice h3,.clinical-notice p,.clinical-notice ul{margin:0 0 8px;color:inherit}
+.clinical-notice ul:last-child{margin-bottom:0;padding-left:20px}
+.clinical-notice strong{display:block;margin-bottom:8px}
+.clinical-badge{display:inline-block;padding:4px 8px;border-radius:6px;font-size:.75rem;font-weight:700;line-height:1.35}
+.clinical-flagged{color:#8a252c;background:#fff0f1;border-color:#e6adb2}
+.clinical-notice.clinical-flagged{border-inline-start:4px solid #ad3944}
+tr.clinical-answer-flagged>td{background:#fff0f1;color:#8a252c}
+.clinical-answer-flagged td:first-child{border-inline-start:3px solid #ad3944}
+.clinical-answer-flagged .clinical-badge{display:table;margin-top:4px}
