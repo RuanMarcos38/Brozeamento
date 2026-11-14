@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {fixture} from './helpers.js';
-import {clinicalBooking,saveClinical,readClinical,listClinical,clinicalPDF} from '../src/anamnesis.js';
+import {clinicalBooking,saveClinical,readClinical,listClinical,clinicalPDF,clinicalReview,recordClinicalReview,requireClinicalReview} from '../src/anamnesis.js';
 import {version,questions,term} from '../public/anamnese-schema.js';
 import {prepareCatalog,activateCatalog} from '../src/catalog.js';
 import {professionalData} from '../src/professional-access.js';
@@ -14,3 +14,29 @@ test('profissional acessa somente as fichas e agenda vinculadas; gestor sem vín
 test('criptografia ausente e retenção expirada fecham acesso; adulteração falha',async()=>{const f=await setup();try{await assert.rejects(saveClinical(f.db,{},f.input.token,f.inputClinical),/indisponível/);const saved=await saveClinical(f.db,f.env,f.input.token,f.inputClinical);const b=await clinicalBooking(f.db,f.input.token);await assert.rejects(readClinical(f.db,{...f.env,ANAMNESIS_ENCRYPTION_KEY:'cd'.repeat(32)},b));await f.db.query("UPDATE anamneses SET expires_at=now()-interval '1 second' WHERE id=$1",[saved.id]);await assert.rejects(readClinical(f.db,f.env,b),/retenção/);}finally{await f.close();}});
 test('catálogo novo idempotente preserva reservas e só ativa após configuração',async()=>{const f=await fixture();try{const u=(await f.db.query("INSERT INTO users(email,password_hash) VALUES('owner@example.invalid','unused') RETURNING id")).rows[0];u.role='owner';const b=await f.booking.create(f.input);const before=await f.db.query('SELECT * FROM bookings WHERE id=$1',[b.id]);await prepareCatalog(f.db,u);await prepareCatalog(f.db,u);const rows=(await f.db.query("SELECT * FROM services WHERE description='Catálogo R&R novembro/2026'")).rows;assert.equal(rows.length,2);assert.ok(rows.every(s=>s.price_cents===22990&&!s.active));assert.equal((await f.db.query('SELECT * FROM packages')).rows.length,8);assert.deepEqual((await f.db.query('SELECT * FROM bookings WHERE id=$1',[b.id])).rows,before.rows);await assert.rejects(activateCatalog(f.db,u,{},{}),/Confirme/);await assert.rejects(activateCatalog(f.db,u,{ANAMNESIS_ENCRYPTION_KEY:'ab'.repeat(32),ANAMNESIS_RETENTION_DAYS:'365'},{reviewed:true,backup_verified:true}),/cuidados/);}finally{await f.close();}});
 test('API da ficha exige bearer e origem, PDF privado, rotas não indexáveis',async()=>{const f=await setup();const {server}=app(f.db,{env:f.env,gateway:f.gateway,calendar:f.calendar,email:f.email});await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;try{let r=await fetch(base+'/api/anamnese');assert.equal(r.status,404);r=await fetch(base+'/api/anamnese',{method:'POST',headers:{Authorization:'Bearer '+f.input.token,'Content-Type':'application/json',Origin:'https://evil.invalid'},body:JSON.stringify(f.inputClinical)});assert.equal(r.status,403);r=await fetch(base+'/api/anamnese',{method:'POST',headers:{Authorization:'Bearer '+f.input.token,'Content-Type':'application/json',Origin:f.env.APP_URL},body:JSON.stringify(f.inputClinical)});assert.equal(r.status,201);r=await fetch(base+'/api/anamnese/pdf',{headers:{Authorization:'Bearer '+f.input.token}});assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'application/pdf');assert.equal(r.headers.get('cache-control'),'no-store');r=await fetch(base+'/anamnese');assert.equal(r.status,200);assert.match(r.headers.get('x-robots-tag'),/noindex/);assert.equal((await fetch(base+'/api/admin/anamneses')).status,401);}finally{server.closeAllConnections();await new Promise(r=>server.close(r));await f.close();}});
+
+for (const hasAllergy of [true, false]) {
+ test('conferência obrigatória — cliente fictícia '+(hasAllergy?'com alergia':'sem alergia'), async () => {
+  const f=await setup();
+  try {
+   const account=(await f.db.query("INSERT INTO users(email,password_hash) VALUES('reviewer@example.invalid','unused') RETURNING id")).rows[0];
+   const reviewer={...account,role:'owner'};
+   f.inputClinical.name=hasAllergy?'TESTE — Com alergia':'TESTE — Sem alergia';
+   f.inputClinical.answers.depilation={value:'NÃO'};
+   if(hasAllergy)f.inputClinical.answers.allergies={value:'SIM',detail:'Relato fictício para homologação'};
+   const saved=await saveClinical(f.db,f.env,f.input.token,f.inputClinical);
+   const {forms}=await listClinical(f.db,reviewer,{env:f.env});
+   const form=forms.find(row=>row.id===saved.id);
+   assert.equal(form.name,f.inputClinical.name);
+   assert.equal(form.review,hasAllergy?'review':'required');
+   assert.equal(form.reviewed,false);
+   const record=await readClinical(f.db,f.env,null,{user:reviewer,id:saved.id});
+   assert.equal(clinicalReview(record.payload).some(label=>label.includes('Alergias')),hasAllergy);
+   await assert.rejects(requireClinicalReview(f.db,f.env,record.booking_id),/precisa ser conferida/);
+   await recordClinicalReview(f.db,f.env,reviewer,{id:saved.id,reviewed:true});
+   await requireClinicalReview(f.db,f.env,record.booking_id);
+  } finally {
+   await f.close();
+  }
+ });
+}
