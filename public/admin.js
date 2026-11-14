@@ -71,7 +71,7 @@ function clinicalReviewLabel(form){
  return form.review==='review'?state+' · Respostas sinalizadas':state;
 }
 async function showClinical(form){
- const record=await api('anamneses?id='+encodeURIComponent(form.id));
+ const record=form.demo_record||await api('anamneses?id='+encodeURIComponent(form.id));
  const p=record.payload,dialog=openAdminDialog('Ficha de '+p.name);
  dialog.append(el('p','Assinada em '+date(record.accepted_at)+' · Revisão '+record.revision));
  if(record.review.length)dialog.append(el('h3','Revisar antes do atendimento'),el('p',record.review.join(' · ')));
@@ -82,8 +82,8 @@ async function showClinical(form){
  ]));
  dialog.append(table(['Pergunta','Resposta','Detalhes'],record.answers.map(a=>[a.label,a.value,a.detail])));
  dialog.append(el('p',p.term),el('p',p.clothingNotice),el('p',p.typed_signature?'Assinatura: '+p.typed_signature:'Assinatura manuscrita disponível no PDF.'));
- dialog.append(clinicalPdfButton(form.id));
- if(role!=='viewer')dialog.append(button('Registrar conferência da ficha',async()=>{
+ if(!form.demo_record)dialog.append(clinicalPdfButton(form.id));
+ if(!form.demo_record&&role!=='viewer')dialog.append(button('Registrar conferência da ficha',async()=>{
   if(!confirm('Você conferiu todas as respostas e avaliou os pontos sinalizados antes do atendimento?'))return;
   await api('anamneses',{id:form.id,reviewed:true});
   dialog.close();
@@ -100,6 +100,35 @@ function clinicalPdfButton(id){
   setTimeout(()=>URL.revokeObjectURL(url),10000);
  });
 }
+const demoAnamneses=new Map();
+async function createDemoAnamneses(){
+ const {questions}=await import('/anamnese-schema.js');
+ for(const hasAllergy of [true,false]){
+  const id=hasAllergy?'demo-with-allergy':'demo-without-allergy';
+  const name=hasAllergy?'TESTE — Cliente com alergia':'TESTE — Cliente sem alergia';
+  const accepted_at=new Date().toISOString();
+  const answers=questions.map(([key,label,,options])=>({
+   label,value:key==='allergies'&&hasAllergy?'SIM':key==='depilation'?'NÃO':options?.[0]||'NÃO',
+   detail:key==='allergies'&&hasAllergy?'Relato fictício para demonstração.':undefined
+  }));
+  demoAnamneses.set(id,{
+   id,name,accepted_at,revision:1,review:hasAllergy?'review':'required',
+   demo_record:{accepted_at,revision:1,answers,review:hasAllergy?['Alergias na pele?']:[],
+    payload:{name,term:'Ficha fictícia para demonstração.',typed_signature:name}}
+  });
+ }
+ await load();
+}
+function renderDemoAnamneses(){
+ const demo=panel('Agendas de teste');
+ demo.append(el('p','Simulações nesta aba do navegador. Nenhum horário é reservado.'));
+ demo.append(button('Criar dois testes de anamnese',createDemoAnamneses));
+ if(!demoAnamneses.size)return;
+ demo.append(table(['Cliente fictícia','Triagem','Ficha','Ação'],[...demoAnamneses.values()].map(form=>[
+  form.name,clinicalReviewLabel(form),button('Ver ficha preenchida',()=>showClinical(form)),
+  button('Excluir agenda de teste',async()=>{demoAnamneses.delete(form.id);await load();})
+ ])));
+}
 function renderClinicalList(x){
  const p=panel('Fichas de anamnese');
  p.append(el('p','As respostas sinalizadas precisam de revisão antes do atendimento.'));
@@ -107,5 +136,6 @@ function renderClinicalList(x){
   f.name,f.professional_name,date(f.accepted_at),f.revision,clinicalReviewLabel(f),
   button('Ver ficha preenchida',()=>showClinical(f))
  ])));
+ if(role==='owner')renderDemoAnamneses();
 }
 function renderUsers(x){const p=panel('Usuários e permissões');p.append(el('p','Profissionais consultam somente as agendas, clientes e fichas vinculadas. Proprietários acessam a gestão completa. Cada alteração de acesso é auditada. A criação de contas e recuperação de senha utiliza o fluxo privado existente.'));for(const u of x.users){const block=el('section');block.append(el('h3',u.email),form('Editar permissões',[['role','Perfil','select',[{id:'owner',name:'Proprietário'},{id:'manager',name:'Gestor'},{id:'viewer',name:'Consulta administrativa'},{id:'professional',name:'Profissional — somente atendimentos vinculados'}]],['active','Conta ativa','checkbox'],['staff_id','Profissional vinculado','select',[{id:'',name:'Sem acesso clínico adicional'},...x.staff]]],'usuarios',{id:u.id,role:u.role,active:u.active,staff_id:u.staff_ids?.[0]||''}));p.append(block);}}
