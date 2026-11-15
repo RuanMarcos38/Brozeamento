@@ -1,7 +1,7 @@
 import {customerCRMJobs} from './customer-crm.js';
 import {franchiseJobs} from './franchise.js';
 import {randomBytes} from 'node:crypto';
-import {access,readFile,writeFile,link,unlink} from 'node:fs/promises';
+import {readFile,writeFile,link,unlink} from 'node:fs/promises';
 import {connect} from './db.js';
 import {app} from './app.js';
 const env=process.env;
@@ -10,11 +10,9 @@ const origin=new URL(env.APP_URL);if(origin.protocol!=='https:'||origin.origin!=
 if(env.RUN_MIGRATIONS==='true')await import('../scripts/migrate.js');
 const db=await connect();await db.query('SELECT 1');
 const clinicalDirectory='/var/lib/rr-anamnese';
-const hasClinicalStorage=await access(clinicalDirectory).then(()=>true,error=>{
- if(error.code==='ENOENT')return false;
- throw error;
-});
-if(hasClinicalStorage){
+const mounts=await readFile('/proc/self/mountinfo','utf8');
+if(mounts.split('\n').some(line=>line.split(' ')[4]===clinicalDirectory)){
+ try{
  if(!env.ANAMNESIS_ENCRYPTION_KEY){
   const keyPath=clinicalDirectory+'/encryption.key';
   const existingKey=await readFile(keyPath,'utf8').catch(error=>{
@@ -33,6 +31,7 @@ if(hasClinicalStorage){
   if(!/^[a-f0-9]{64}$/i.test(env.ANAMNESIS_ENCRYPTION_KEY))throw Error('Chave persistente de anamnese inválida');
  }
  env.ANAMNESIS_RETENTION_DAYS||='365';
+ }catch(error){console.error(JSON.stringify({event:'anamnesis_storage_unavailable',message:error.code||error.message}));}
 }
 if(env.BOOTSTRAP_COMMERCIAL==='true'&&(await db.query('SELECT count(*)::integer total FROM services')).rows[0].total===0)await import('../scripts/configure-commercial.js');
 const {server,service,recovery}=app(db);let stopping=false;let active=null;
