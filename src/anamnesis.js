@@ -1,14 +1,14 @@
 import {createCipheriv,createDecipheriv,randomBytes,createHash} from 'node:crypto';
 import {one,all,audit} from './db.js';
 import {requireValue,hash,uuid} from './security.js';
-import {version,term,clothingNotice,questions} from '../public/anamnese-schema.js';
+import {version,legacyVersion,term,clothingNotice,questions} from '../public/anamnese-schema.js';
 function key(env){requireValue(/^[a-f0-9]{64}$/i.test(env.ANAMNESIS_ENCRYPTION_KEY||''),'Ficha indisponível: a equipe precisa configurar o armazenamento privado.',503);return Buffer.from(env.ANAMNESIS_ENCRYPTION_KEY,'hex');}
 export function clinicalReady(env){return /^[a-f0-9]{64}$/i.test(env.ANAMNESIS_ENCRYPTION_KEY||'')&&Number.isInteger(Number(env.ANAMNESIS_RETENTION_DAYS))&&Number(env.ANAMNESIS_RETENTION_DAYS)>0&&Number(env.ANAMNESIS_RETENTION_DAYS)<=3650;}
 function encrypt(payload,env,aad){const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key(env),iv);cipher.setAAD(Buffer.from(aad));const data=Buffer.concat([cipher.update(JSON.stringify(payload),'utf8'),cipher.final()]);return [iv,cipher.getAuthTag(),data].map(x=>x.toString('base64')).join('.');}
 function decrypt(value,env,aad){const [iv,tag,data]=value.split('.').map(x=>Buffer.from(x,'base64'));const cipher=createDecipheriv('aes-256-gcm',key(env),iv);cipher.setAAD(Buffer.from(aad));cipher.setAuthTag(tag);return JSON.parse(Buffer.concat([cipher.update(data),cipher.final()]).toString());}
 export async function clinicalBooking(db,bearer){requireValue(/^[a-f0-9]{64}$/.test(bearer||''),'Reserva não encontrada',404);const b=await one(db,'SELECT b.*,c.name,c.email,c.phone,r.staff_id,r.audience,st.name professional_name,s.anamnesis_required FROM bookings b JOIN customers c ON c.id=b.customer_id JOIN resources r ON r.id=b.resource_id LEFT JOIN staff st ON st.id=r.staff_id JOIN services s ON s.id=b.service_id WHERE b.token_hash=$1 OR b.receipt_token_hash=$1',[hash(bearer)]);requireValue(b,'Reserva não encontrada',404);return b;}
 export function validateClinical(x,b){
- requireValue(x.version===version&&x.accepted===true&&x.health_consent===true,'Leia e aceite o termo e o tratamento de dados de saúde.');
+ requireValue((x.version===version||x.version===legacyVersion)&&x.accepted===true&&x.health_consent===true,'Leia e aceite o termo e o tratamento de dados de saúde.');
  const data={};for(const name of ['name','sex','birth_date','phone','email','profession','phototype','location','clothing','evaluation_date']){requireValue(typeof x[name]==='string'&&x[name].trim().length>0&&x[name].length<=254,'Preencha o campo '+name);data[name]=x[name].trim();}
  requireValue(['MASC','FEM'].includes(data.sex)&&/^[1-6]$/.test(data.phototype),'Sexo ou fototipo inválido');
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo'}).format(new Date());
@@ -17,9 +17,9 @@ export function validateClinical(x,b){
  requireValue(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)&&data.phone.replace(/\D/g,'').length>=10,'Confira telefone e e-mail');
  const choices=b.audience==='feminino'?['Sem biquíni *NUA','Biquíni de Tecido','Biquíni de Fita']:['A definir com o profissional antes do atendimento'];
  requireValue(choices.includes(data.clothing),'Vestimenta inválida');
- data.answers={};for(const [id,,detail,options] of questions){const answer=x.answers?.[id];requireValue((options||['SIM','NÃO']).includes(answer?.value),'Responda todas as perguntas da ficha.');data.answers[id]={value:answer.value};if(detail&&answer.value==='SIM'){requireValue(typeof answer.detail==='string'&&answer.detail.trim().length>0&&answer.detail.length<=500,'Complete os detalhes das respostas SIM.');if(id==='pressure')requireValue(['ALTA','BAIXA'].includes(answer.detail),'Informe ALTA ou BAIXA');if(id==='pregnancy')requireValue(/^\d{1,2}$/.test(answer.detail)&&Number(answer.detail)>=1&&Number(answer.detail)<=45,'Informe as semanas de gestação');data.answers[id].detail=answer.detail.trim();}}
+ data.answers={};for(const [id,,detail,options] of questions){if(id==='melasma'&&x.version===legacyVersion&&!x.answers?.[id])continue;const answer=x.answers?.[id];requireValue((options||['SIM','NÃO']).includes(answer?.value),'Responda todas as perguntas da ficha.');data.answers[id]={value:answer.value};if(detail&&answer.value==='SIM'){requireValue(typeof answer.detail==='string'&&answer.detail.trim().length>0&&answer.detail.length<=500,'Complete os detalhes das respostas SIM.');if(id==='pressure')requireValue(['ALTA','BAIXA'].includes(answer.detail),'Informe ALTA ou BAIXA');if(id==='pregnancy')requireValue(/^\d{1,2}$/.test(answer.detail)&&Number(answer.detail)>=1&&Number(answer.detail)<=45,'Informe as semanas de gestação');data.answers[id].detail=answer.detail.trim();}}
  const typed=typeof x.typed_signature==='string'?x.typed_signature.trim():'';if(typed){requireValue(typed===data.name&&typed.length>=3&&typed.length<=120,'A assinatura digitada deve corresponder ao nome completo.');x.signature=[];}else {requireValue(Array.isArray(x.signature)&&x.signature.length>0&&x.signature.length<=100,'Assine a ficha.');let points=0;for(const stroke of x.signature){requireValue(Array.isArray(stroke)&&stroke.length>=2&&stroke.length<=2000,'Assinatura inválida');points+=stroke.length;for(const p of stroke)requireValue(Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&n>=0&&n<=1),'Assinatura inválida');}requireValue(points>=3&&points<=4000,'Assinatura inválida');}
- return {...data,signature:x.signature,typed_signature:typed,version,term,clothingNotice,accepted:true,health_consent:true};
+ return {...data,signature:x.signature,typed_signature:typed,version:x.version,term,clothingNotice,accepted:true,health_consent:true};
 }
 export async function saveClinical(db,env,bearer,x){requireValue(clinicalReady(env),'Ficha indisponível: configure criptografia e retenção.',503);const b=await clinicalBooking(db,bearer);requireValue(b.staff_id,'A reserva precisa estar vinculada a um profissional.',409);requireValue(['pending','confirmed'].includes(b.state),'Esta reserva não aceita atualização de ficha.',409);const payload=validateClinical(x,b);return db.transaction(async tx=>{const current=await one(tx,'SELECT id,state FROM bookings WHERE id=$1 FOR UPDATE',[b.id]);requireValue(['pending','confirmed'].includes(current.state),'Esta reserva não aceita atualização de ficha.',409);const latest=await one(tx,'SELECT revision,digest FROM anamneses WHERE booking_id=$1 ORDER BY revision DESC LIMIT 1',[b.id]);requireValue(Number(x.previous_revision||0)===(latest?.revision||0),'A ficha foi atualizada. Recarregue antes de assinar novamente.',409);const revision=(latest?.revision||0)+1,digest=createHash('sha256').update(JSON.stringify(payload)).digest('hex');const row=await one(tx,"INSERT INTO anamneses(booking_id,customer_id,staff_id,revision,version,encrypted_payload,digest,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+$8::int*interval '1 day') RETURNING id,revision,accepted_at",[b.id,b.customer_id,b.staff_id,revision,version,encrypt(payload,env,b.id+':'+revision),digest,Number(env.ANAMNESIS_RETENTION_DAYS)]);await audit(tx,null,'anamnesis.signed',row.id,{revision});return {...row,digest};});}
 export async function readClinical(db,env,b,{user=null,id=null}={}){
@@ -28,13 +28,14 @@ export async function readClinical(db,env,b,{user=null,id=null}={}){
 }
 const reviewFields = new Set([
  'respiratory', 'pressure', 'epilepsy', 'degenerative', 'allergies', 'wounds',
- 'bruises', 'medication', 'pregnancy', 'vitiligo', 'psoriasis', 'fasting', 'sweating'
+ 'bruises', 'medication', 'pregnancy', 'melasma', 'vitiligo', 'psoriasis', 'fasting', 'sweating'
 ]);
 
 export function clinicalReview(payload) {
  const alerts=[];
  for(const [id,label,detail,options] of questions){
   const answer=payload.answers?.[id];
+  if(id==='melasma'&&payload.version===legacyVersion&&!answer)continue;
   if(!(options||['SIM','NÃO']).includes(answer?.value) ||
    (detail && answer.value==='SIM' && (typeof answer.detail!=='string'||!answer.detail.trim()))){
    alerts.push('Resposta incompleta ou inválida — '+label);
