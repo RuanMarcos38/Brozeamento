@@ -30,5 +30,10 @@ export async function visitorMetrics(db,user,query={}){
   all(db,`SELECT s.device,count(DISTINCT e.session_id)::int visitors FROM site_analytics_events e JOIN site_visitor_sessions s ON s.id=e.session_id WHERE ${when} AND e.name='page_view' GROUP BY s.device ORDER BY visitors DESC`,p),
   all(db,`SELECT e.utm_source,count(DISTINCT e.session_id)::int visitors FROM site_analytics_events e WHERE ${when} AND e.utm_source IS NOT NULL GROUP BY e.utm_source ORDER BY visitors DESC LIMIT 25`,p)
  ]);
- return {range,active:active.n,totals:{...totals,conversion_rate:totals.bookings_started?Number((100*totals.bookings_completed/totals.bookings_started).toFixed(2)):0},sources,pages,trend,devices,utm};
+ const commercial=await all(db,`SELECT st.name professional_name,
+ (SELECT count(*)::int FROM bookings b JOIN resources r ON r.id=b.resource_id WHERE r.staff_id=st.id AND b.created_at>=($1::date::timestamp AT TIME ZONE 'America/Sao_Paulo') AND b.created_at<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND b.parent_booking_id IS NULL) reservations,
+ (SELECT count(*)::int FROM bookings b JOIN resources r ON r.id=b.resource_id WHERE r.staff_id=st.id AND b.state='confirmed' AND b.parent_booking_id IS NULL AND b.created_at>=($1::date::timestamp AT TIME ZONE 'America/Sao_Paulo') AND b.created_at<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo')) confirmed,
+ (SELECT COALESCE(sum(p.amount_cents),0)::bigint FROM payments p JOIN bookings b ON b.id=p.booking_id JOIN resources r ON r.id=b.resource_id WHERE r.staff_id=st.id AND p.status='approved' AND COALESCE(p.approved_at,p.updated_at)>=($1::date::timestamp AT TIME ZONE 'America/Sao_Paulo') AND COALESCE(p.approved_at,p.updated_at)<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo')) revenue
+ FROM staff st WHERE st.active ORDER BY st.name`,p);
+ return {commercial,range,active:active.n,totals:{...totals,conversion_rate:totals.bookings_started?Number((100*totals.bookings_completed/totals.bookings_started).toFixed(2)):0},sources,pages,trend,devices,utm};
 }

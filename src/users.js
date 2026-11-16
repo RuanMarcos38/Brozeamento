@@ -1,0 +1,24 @@
+import {one,all,audit} from './db.js';
+import {requireValue,uuid,passwordHash,token} from './security.js';
+const roles=['owner','manager','viewer','professional'];
+
+export async function usersData(db,user){requireValue(user.role==='owner','Área exclusiva do proprietário',403);return {users:await all(db,"SELECT u.id,u.email,u.active,r.role,COALESCE(array_agg(a.staff_id) FILTER(WHERE a.staff_id IS NOT NULL),'{}') staff_ids FROM users u JOIN admin_roles r ON r.user_id=u.id LEFT JOIN clinical_access a ON a.user_id=u.id GROUP BY u.id,r.role ORDER BY u.email"),staff:await all(db,'SELECT id,name FROM staff WHERE active ORDER BY name')};}
+export async function usersWrite(db,user,x){requireValue(user.role==='owner','Área exclusiva do proprietário',403);if(x.action==='create')return createUser(db,user,x);
+ requireValue(uuid(x.id)&&roles.includes(x.role)&&typeof x.active==='boolean','Confira o perfil e usuário');requireValue(!x.staff_id||uuid(x.staff_id),'Profissional inválido');requireValue(x.id!==user.id||(x.active&&x.role==='owner'),'Mantenha seu próprio acesso de proprietário ativo');requireValue(x.role!=='professional'||x.staff_id,'Vincule a conta a um profissional');return db.transaction(async tx=>{const target=await one(tx,'SELECT id FROM users WHERE id=$1 FOR UPDATE',[x.id]);requireValue(target,'Usuário não encontrado',404);if(x.staff_id)requireValue(await one(tx,'SELECT id FROM staff WHERE id=$1 AND active',[x.staff_id]),'Profissional não encontrado');await tx.query('UPDATE users SET active=$2 WHERE id=$1',[x.id,x.active]);await tx.query('UPDATE admin_roles SET role=$2 WHERE user_id=$1',[x.id,x.role]);await tx.query('DELETE FROM clinical_access WHERE user_id=$1',[x.id]);if(x.staff_id)await tx.query('INSERT INTO clinical_access(user_id,staff_id) VALUES($1,$2)',[x.id,x.staff_id]);if(x.id!==user.id)await tx.query('DELETE FROM sessions WHERE user_id=$1',[x.id]);await audit(tx,user.id,'user.permissions',x.id,{role:x.role,active:x.active,staff_id:x.staff_id||null});return {ok:true};});}
+
+async function createUser(db,user,x){
+ const email=typeof x.email==='string'?x.email.trim().toLowerCase():'';
+ requireValue(email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),'Informe um e-mail válido');
+ requireValue(roles.includes(x.role),'Escolha um perfil de acesso');
+ requireValue(!x.staff_id||uuid(x.staff_id),'Profissional inválido');
+ requireValue(x.role!=='professional'||x.staff_id,'Vincule a conta a um profissional');
+ return db.transaction(async tx=>{
+  if(x.staff_id)requireValue(await one(tx,'SELECT id FROM staff WHERE id=$1 AND active',[x.staff_id]),'Profissional não encontrado');
+  const account=await one(tx,'INSERT INTO users(email,password_hash) VALUES($1,$2) ON CONFLICT(email) DO NOTHING RETURNING id',[email,passwordHash(token())]);
+  requireValue(account,'Este e-mail já está cadastrado',409);
+  await tx.query('INSERT INTO admin_roles(user_id,role) VALUES($1,$2)',[account.id,x.role]);
+  if(x.staff_id)await tx.query('INSERT INTO clinical_access(user_id,staff_id) VALUES($1,$2)',[account.id,x.staff_id]);
+  await audit(tx,user.id,'user.created',account.id,{role:x.role,staff_id:x.staff_id||null});
+  return {ok:true};
+ });
+}
